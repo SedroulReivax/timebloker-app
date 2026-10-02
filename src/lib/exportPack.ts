@@ -50,6 +50,24 @@ export interface ExportGoal {
 export interface ExportSleepLog { date_key: string; quality?: number | null; energy?: number | null; factors?: string[] | null; notes?: string | null }
 export interface ExportReview { period_type: string; period_key: string; energy?: number | null; happened?: string | null; planned?: string | null; changed?: string | null; carry_over?: string | null; notes?: string | null }
 
+/** Rows of the backend analytics layer (analytics_* tables) for the export range, as returned by the get_*_analytics_range RPCs. */
+export interface ExportBackendAnalytics {
+  daily: {
+    date_key: string; tracked_minutes: number; untracked_minutes: number; elapsed_minutes: number; coverage_pct: number | null;
+    judged_minutes: number; ignored_minutes: number; sleep_minutes: number; productivity_points: number; productivity_score: number | null;
+    attention_points: number; attention_efficiency: number | null; waste_minutes: number; waste_points: number; waste_share_pct: number | null;
+    switch_count: number; cross_switch_count: number; switches_per_hour: number | null; longest_run_minutes: number | null;
+    mean_run_minutes: number | null; task_focus_minutes: number; tasks_completed: number; goal_minutes: number;
+  }[];
+  activity: {
+    date_key: string; activity_id: string; minutes: number; judged_minutes: number; ignored_minutes: number; productivity_points: number;
+    productivity_score: number | null; focus_demand_points: number; waste_minutes: number; waste_points: number; run_count: number; longest_run_minutes: number | null;
+  }[];
+  goal: { date_key: string; goal_id: string; goal_minutes: number; cumulative_hours: number; linked_task_count: number; linked_habit_completions: number }[];
+  habit: { date_key: string; habit_id: string; due: boolean; completed: boolean; log_count: number }[];
+  transition: { date_key: string; from_activity_id: string; to_activity_id: string; transition_count: number }[];
+}
+
 export interface ExportInput {
   /** blocks from (from - 28 days, or the previous period start, whichever is earlier) to `to` */
   blocks: RangeBlock[];
@@ -63,10 +81,12 @@ export interface ExportInput {
   sleepLogs: ExportSleepLog[];
   reviews: ExportReview[];
   settings?: { sleep_goal_hours?: number | null; default_wake_time?: string | null; default_sleep_time?: string | null } | null;
+  /** Backend analytics rows for [from, to]; omit when unavailable (the analytics tables are left out of the export). */
+  backend?: ExportBackendAnalytics | null;
 }
 
-export interface ExportInclude { timeline: boolean; text: boolean; tasks: boolean; habits: boolean; sleep: boolean; goals: boolean }
-export const DEFAULT_INCLUDE: ExportInclude = { timeline: true, text: true, tasks: true, habits: true, sleep: true, goals: true };
+export interface ExportInclude { timeline: boolean; text: boolean; tasks: boolean; habits: boolean; sleep: boolean; goals: boolean; analytics: boolean }
+export const DEFAULT_INCLUDE: ExportInclude = { timeline: true, text: true, tasks: true, habits: true, sleep: true, goals: true, analytics: true };
 
 export interface ExportOptions { include?: Partial<ExportInclude>; anonymise?: boolean; now?: Date }
 
@@ -396,6 +416,47 @@ export const buildExportData = (input: ExportInput, fromKey: string, toKey: stri
     }
   }
 
+  // Backend analytics layer for the same range (the numbers the Analytics screens read), names resolved/anonymised here
+  if (inc.analytics && input.backend) {
+    const be = input.backend;
+    const habitIdx = new Map(input.habits.map((h, i) => [h.id, i]));
+    const goalIdx = new Map(input.goals.map((g, i) => [g.id, i]));
+    tables.analytics_daily = {
+      title: 'Analytics: daily',
+      description: 'The backend accounting layer, one row per day (same period as above). attention_points = judged minutes x focus demand / 5; attention_efficiency = productivity_points / attention_points. Blank = not computable that day.',
+      columns: ['date', 'elapsed_min', 'tracked_min', 'untracked_min', 'coverage_pct', 'judged_min', 'ignored_min', 'sleep_min', 'productivity_points', 'productivity_score', 'attention_points', 'attention_efficiency', 'waste_min', 'waste_points', 'waste_share_pct', 'switches', 'cross_switches', 'switches_per_h', 'longest_run_min', 'mean_run_min', 'task_focus_min', 'tasks_completed', 'goal_min'],
+      rows: be.daily.map((d) => [d.date_key, d.elapsed_minutes, d.tracked_minutes, d.untracked_minutes, r1(d.coverage_pct), d.judged_minutes, d.ignored_minutes, d.sleep_minutes, r2(d.productivity_points), r2(d.productivity_score), r2(d.attention_points), r2(d.attention_efficiency), d.waste_minutes, r2(d.waste_points), r1(d.waste_share_pct), d.switch_count, d.cross_switch_count, r1(d.switches_per_hour), d.longest_run_minutes, r1(d.mean_run_minutes), d.task_focus_minutes, d.tasks_completed, d.goal_minutes]),
+    };
+    tables.analytics_activity = {
+      title: 'Analytics: per activity per day',
+      description: 'One row per activity per day with time. focus_demand_points is judged minutes x focus demand (0-5).',
+      columns: ['date', 'activity', 'minutes', 'judged_min', 'ignored_min', 'productivity_points', 'productivity_score', 'focus_demand_points', 'waste_min', 'waste_points', 'runs', 'longest_run_min'],
+      rows: be.activity.map((a) => [a.date_key, actName(a.activity_id), a.minutes, a.judged_minutes, a.ignored_minutes, r2(a.productivity_points), r2(a.productivity_score), r2(a.focus_demand_points), a.waste_minutes, r2(a.waste_points), a.run_count, a.longest_run_minutes]),
+    };
+    if (inc.goals) {
+      tables.analytics_goals = {
+        title: 'Analytics: per goal per day',
+        description: 'Minutes on each goal per day and cumulative hours since the goal started.',
+        columns: ['date', 'goal', 'goal_min', 'cumulative_h', 'linked_tasks', 'linked_habit_completions'],
+        rows: be.goal.map((g) => [g.date_key, goalIdx.has(g.goal_id) ? goalName(input.goals[goalIdx.get(g.goal_id)!], goalIdx.get(g.goal_id)!) : 'Unknown goal', g.goal_minutes, r1(g.cumulative_hours), g.linked_task_count, g.linked_habit_completions]),
+      };
+    }
+    if (inc.habits) {
+      tables.analytics_habits = {
+        title: 'Analytics: per habit per day',
+        description: 'Whether each habit was due and completed each day.',
+        columns: ['date', 'habit', 'due', 'completed', 'logs'],
+        rows: be.habit.map((h) => [h.date_key, habitIdx.has(h.habit_id) ? habitName(input.habits[habitIdx.get(h.habit_id)!], habitIdx.get(h.habit_id)!) : 'Unknown habit', h.due, h.completed, h.log_count]),
+      };
+    }
+    tables.analytics_transitions = {
+      title: 'Analytics: activity transitions',
+      description: 'How many times each activity was followed directly by another, per day.',
+      columns: ['date', 'from', 'to', 'count'],
+      rows: be.transition.map((t) => [t.date_key, actName(t.from_activity_id), actName(t.to_activity_id), t.transition_count]),
+    };
+  }
+
   // ── Insights (plain sentences computed from the engines) ──
   const w = focus.overall.window;
   const focusLines: string[] = [];
@@ -528,8 +589,8 @@ export const toMarkdown = (d: ExportData, detail: ExportDetail = 'full'): string
     for (const l of lines) out.push(`- ${l}`);
     out.push('');
   }
-  const order = ['days', 'activities', 'sleep', 'habits', 'goals', 'tasks', 'waste_stretches', 'focus_runs', 'timeline', 'reflections'];
-  const skipCompact = new Set(['focus_runs', 'timeline', 'reflections', 'waste_stretches']);
+  const order = ['days', 'activities', 'analytics_daily', 'sleep', 'habits', 'goals', 'tasks', 'analytics_activity', 'analytics_goals', 'analytics_habits', 'analytics_transitions', 'waste_stretches', 'focus_runs', 'timeline', 'reflections'];
+  const skipCompact = new Set(['focus_runs', 'timeline', 'reflections', 'waste_stretches', 'analytics_activity', 'analytics_goals', 'analytics_habits', 'analytics_transitions']);
   out.push('## Data tables');
   for (const k of order) {
     const t = d.tables[k];
@@ -539,7 +600,7 @@ export const toMarkdown = (d: ExportData, detail: ExportDetail = 'full'): string
     out.push('');
     out.push(mdTable(t));
   }
-  if (detail === 'compact') out.push('_Compact export: the per-segment timeline, focus runs, waste stretches and written reflections were left out. Export "Full" for them._');
+  if (detail === 'compact') out.push('_Compact export: the per-segment timeline, focus runs, waste stretches, per-activity/goal/habit/transition analytics and written reflections were left out. Export "Full" for them._');
   return out.join('\n');
 };
 

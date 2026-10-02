@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Check, Copy, FileJson, FileText, Package, Sparkles } from 'lucide-react';
+import { Bot, Check, Copy, FileJson, FileText, Package } from 'lucide-react';
 import { endOfMonth, format, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { zipSync, strToU8 } from 'fflate';
 import { supabase } from '../supabaseClient';
@@ -10,9 +10,9 @@ import { BackupPanel } from './BackupPanel';
 import type { RangeBlock } from '../lib/blockRange';
 import {
   buildExportData, DEFAULT_INCLUDE, estimateTokens, exportFetchStart, toCSVs, toJSON, toMarkdown,
-  type ExportDetail, type ExportHabitLog, type ExportInclude, type ExportInput,
+  type ExportBackendAnalytics, type ExportDetail, type ExportHabitLog, type ExportInclude, type ExportInput,
 } from '../lib/exportPack';
-import { getOrCreateAnalysisPrompt, submitAnalysisResponse, type AIAnalysisPromptResult } from '../lib/aiAnalysisService';
+import { fetchActivityAnalytics, fetchDailyAnalytics, fetchGoalAnalytics, fetchHabitAnalytics, fetchTransitionAnalytics } from '../lib/backendAnalytics';
 import type { Activity, Goal, Review, SleepLog, Task, TaskBlockRef, TaskFocusSession, UserSettings } from '../types';
 import { pageClass } from './ui/page';
 
@@ -36,6 +36,7 @@ const PRESETS: { id: Preset; label: string }[] = [
 const INCLUDE_LABELS: { key: keyof ExportInclude; label: string }[] = [
   { key: 'timeline', label: 'Timeline' }, { key: 'text', label: 'Notes & reflections' }, { key: 'tasks', label: 'Tasks' },
   { key: 'habits', label: 'Habits' }, { key: 'sleep', label: 'Sleep' }, { key: 'goals', label: 'Goals' },
+  { key: 'analytics', label: 'Analysis data' },
 ];
 const BIG_PACK_TOKENS = 100_000;
 
@@ -95,18 +96,7 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [raw, setRaw] = useState<{ blocks: RangeBlock[]; habitLogs: ExportHabitLog[] } | null>(null);
-
-  // Canonical (backend-analytics-backed) AI brief: generate a prompt, copy it into
-  // whatever AI chat the user uses, then paste the reply back in to keep it with
-  // the request that produced it. No provider call happens here or on the server.
-  const [aiModel, setAiModel] = useState('claude');
-  const [aiResult, setAiResult] = useState<AIAnalysisPromptResult | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiCopied, setAiCopied] = useState(false);
-  const [aiReplyDraft, setAiReplyDraft] = useState('');
-  const [aiSaved, setAiSaved] = useState(false);
+  const [raw, setRaw] = useState<{ blocks: RangeBlock[]; habitLogs: ExportHabitLog[]; backend: ExportBackendAnalytics | null } | null>(null);
 
   const choosePreset = (p: Preset) => {
     setPreset(p);
@@ -123,11 +113,18 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
     setError(null);
     (async () => {
       try {
-        const [blocks, habitLogs] = await Promise.all([
+        // The analysis data is a bonus: if the backend analytics can't be read, the rest of the export still works.
+        const backendPromise: Promise<ExportBackendAnalytics | null> = Promise.all([
+          fetchDailyAnalytics(fromDate, toDate), fetchActivityAnalytics(fromDate, toDate), fetchGoalAnalytics(fromDate, toDate),
+          fetchHabitAnalytics(fromDate, toDate), fetchTransitionAnalytics(fromDate, toDate),
+        ]).then(([daily, activity, goal, habit, transition]) => ({ daily, activity, goal, habit, transition }) as ExportBackendAnalytics)
+          .catch((e) => { console.warn('export: backend analytics unavailable', e); return null; });
+        const [blocks, habitLogs, backend] = await Promise.all([
           fetchAll<RangeBlock>((f, t) => supabase.from('time_blocks').select('date_key, block_index, activity_id, task_id').gte('date_key', start).lte('date_key', toDate).not('activity_id', 'is', null).order('date_key').order('block_index').range(f, t)),
           fetchAll<ExportHabitLog>((f, t) => supabase.from('habit_logs').select('habit_id, date_key, logged_at').gte('date_key', subDays(parseISO(start), 90).toISOString().slice(0, 10)).lte('date_key', toDate).range(f, t)),
+          backendPromise,
         ]);
-        if (!cancelled) setRaw({ blocks, habitLogs });
+        if (!cancelled) setRaw({ blocks, habitLogs, backend });
       } catch (e) {
         console.error('export fetch failed', e);
         if (!cancelled) setError('Could not load your data for this range. Check your connection and try again.');
@@ -152,6 +149,7 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
       sleepLogs,
       reviews,
       settings: userSettings,
+      backend: raw.backend,
     };
     const data = buildExportData(input, fromDate, toDate, { include, anonymise });
     const md = toMarkdown(data, detail);
@@ -170,43 +168,6 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-  const generateAiBrief = async () => {
-    if (fromDate > toDate) return;
-    setAiLoading(true);
-    setAiError(null);
-    setAiSaved(false);
-    try {
-      const result = await getOrCreateAnalysisPrompt({ fromDate, toDate, analysisMode: 'export_range', model: aiModel.trim() || 'claude' });
-      setAiResult(result);
-      setAiReplyDraft(result.response ?? '');
-    } catch (e: any) {
-      console.error('AI brief generation failed', e);
-      setAiError(e?.message || 'Could not build the analysis brief.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const copyAiPrompt = async () => {
-    if (!aiResult) return;
-    await navigator.clipboard.writeText(aiResult.prompt);
-    setAiCopied(true);
-    setTimeout(() => setAiCopied(false), 2000);
-  };
-
-  const saveAiReply = async () => {
-    if (!aiResult || !aiReplyDraft.trim()) return;
-    try {
-      await submitAnalysisResponse(aiResult.requestHash, aiReplyDraft.trim());
-      setAiResult({ ...aiResult, status: 'success', response: aiReplyDraft.trim() });
-      setAiSaved(true);
-      setTimeout(() => setAiSaved(false), 2000);
-    } catch (e: any) {
-      console.error('saving AI reply failed', e);
-      setAiError(e?.message || 'Could not save the reply.');
-    }
-  };
-
   const downloadZip = () => {
     if (!outputs) return;
     const files: Record<string, Uint8Array> = {};
@@ -254,6 +215,7 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
         {outputs && mdTokens > BIG_PACK_TOKENS && (
           <p className="text-xs text-amber-700 dark:text-amber-400">This pack is large ({fmtTokens(mdTokens)}). Some AI chats will cut it off: try Compact, untick Timeline, or pick a shorter range.</p>
         )}
+        {outputs && include.analytics && !raw?.backend && <p className="text-xs text-amber-700 dark:text-amber-400">The backend analysis data could not be loaded for this range, so it is left out of the export.</p>}
         {outputs && <p className="text-[11px] text-muted-foreground">{outputs.data.meta.days_with_tracking} of {outputs.data.meta.days} days have tracking. The AI pack starts with instructions for the AI, definitions and suggested questions, so you can paste it and ask "analyse this".</p>}
       </div>
       </Section>
@@ -303,51 +265,6 @@ export function ExportPage({ activities, habits, sleepLogs, goals, tasks = [], t
             <Package className="w-4 h-4" /><span className="flex-1 text-left">CSV tables (.zip)</span>
             {outputs && <span className="text-[11px] text-muted-foreground ibm-mono">{Object.keys(outputs.csvs).length} files · {fmtSize(outputs.csvChars)}</span>}
           </Button>
-        </div>
-      </Section>
-
-      {/* Canonical AI brief: backend-analytics-backed, cached by request, no live provider call */}
-      <Section id="export-ai-brief" detail title="AI analysis brief" summary="canonical, cached · you paste the reply back">
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Builds a prompt from the same deterministic backend numbers the app shows you (not a re-read of raw history). Nothing is sent to an AI provider automatically: copy the prompt into whatever AI chat you use, then paste its reply back in below to keep it with this request.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs text-muted-foreground">Model label
-              <Input value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder="e.g. claude, gpt-5" className="min-h-[40px] mt-1 w-40" />
-            </label>
-            <Button onClick={generateAiBrief} disabled={aiLoading || fromDate > toDate} className="min-h-[44px] gap-2">
-              <Sparkles className="w-4 h-4" />
-              {aiLoading ? 'Building…' : aiResult ? 'Regenerate for this range' : 'Generate brief'}
-            </Button>
-          </div>
-          {aiError && <p className="text-sm text-red-500" role="alert">{aiError}</p>}
-          {aiResult && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] text-muted-foreground ibm-mono">{aiResult.status === 'success' ? 'saved reply on file' : 'ready to copy'} · {fmtTokens(estimateTokens(aiResult.prompt))}</span>
-                <Button variant="outline" size="sm" onClick={copyAiPrompt} className="gap-2">
-                  {aiCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {aiCopied ? 'Copied' : 'Copy prompt'}
-                </Button>
-              </div>
-              <pre className="bg-muted text-foreground border border-border rounded-xl p-3 h-48 overflow-auto ibm-mono text-[11px] leading-relaxed whitespace-pre">{aiResult.prompt}</pre>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Paste the AI's reply here to save it with this request</label>
-                <textarea
-                  value={aiReplyDraft}
-                  onChange={(e) => setAiReplyDraft(e.target.value)}
-                  rows={5}
-                  className="w-full text-sm p-3 border border-border rounded-lg bg-background outline-none focus:ring-1 ring-primary"
-                  placeholder="Paste the reply…"
-                />
-                <Button variant="outline" size="sm" onClick={saveAiReply} disabled={!aiReplyDraft.trim()} className="gap-2">
-                  {aiSaved ? <Check className="w-4 h-4" /> : null}
-                  {aiSaved ? 'Saved' : 'Save reply'}
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       </Section>
 
