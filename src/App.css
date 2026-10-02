@@ -1,0 +1,150 @@
+/* App.css – TrackerApp layout only. All colors use Tailwind theme vars. */
+
+/* Desktop 2-panel layout (sidebar + main) */
+.tracker-layout {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: hsl(var(--card));
+}
+
+.tracker-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  overflow-y: auto;
+  border-right: none;
+  background: transparent;
+  transition: width 0.2s ease;
+  padding: 12px 0 12px 12px;
+}
+
+.tracker-sidebar.collapsed {
+  width: 72px;
+  overflow-x: hidden;
+}
+
+.tracker-main {
+  flex: 1;
+  height: calc(100% - 24px);
+  margin: 12px 12px 12px 0;
+  border-radius: 1.25rem;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 10px 40px -10px rgba(0,0,0,0.05);
+  overflow: hidden;
+  min-width: 0;
+  background: hsl(var(--background));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ultrawide: a little more room for the calendar and habits */
+@media (min-width: 2400px) {
+  .tracker-sidebar:not(.collapsed) { width: 280px; }
+}
+
+.mobile-tab-nav {
+  display: none;
+}
+
+/* Phones and tablets (below 1024px): one panel, bottom nav, calendar and habits in a sheet */
+@media (max-width: 1023px) {
+  .tracker-layout {
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+    background: hsl(var(--background));
+    padding-top: var(--safe-t);
+  }
+
+  .tracker-sidebar {
+    display: none;
+    width: 100%;
+    height: 100%;
+    flex: unset;
+    border-right: none;
+    border-bottom: none;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .tracker-main {
+    display: none;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    flex: unset;
+    overflow: hidden;
+  }
+
+  /* Override collapsed width on mobile — always full-width */
+  .tracker-sidebar.collapsed {
+    width: 100%;
+  }
+
+  .tracker-sidebar.mobile-active,
+  .tracker-main.mobile-active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .mobile-tab-nav {
+    display: flex;
+    flex-direction: row;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--card) / 0.92);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+    padding-bottom: var(--safe-b);
+  }
+
+  .mobile-tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 4px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    min-height: 56px;
+    transition: color 0.15s;
+  }
+
+  .mobile-tab-btn.active {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+  }
+  .mobile-tab-btn.active svg { transform: translateY(-1px); }
+
+  .mobile-tab-btn svg {
+    flex-shrink: 0;
+  }
+}
+
+/* Landscape orientation on mobile optimization */
+@media (max-width: 1023px) and (orientation: landscape) and (max-height: 500px) {
+  .mobile-tab-btn {
+    flex-direction: row;
+    gap: 6px;
+    min-height: 40px;
+    padding: 4px;
+    font-size: 0.7rem;
+  }
+  
+  .mobile-tab-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+}

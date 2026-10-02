@@ -1,0 +1,61 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+ORIGINAL_REQUEST.md
+PROJECT.md
+v2.md
+# Ignore local spec/notes/docs (not code)
+blockday-spec.md
+progress.md
+error.md
+*.plan.md
+.agents
+/UI/
+.env
+v3.md
+.vercel
+.env*
+!.env.example
+CODEBASE_ANALYSIS_REPORT.md
+windows-app/node_modules/
+windows-app/dist-win/
+
+# manual dev/validation scripts (may end up with real ids/data baked in)
+scripts/
+
+# local spec/notes/planning docs (not code, may go stale or contain real ids)
+gemini.md
+IDEAS.md
+plan-2.md
+plan_gemini*
+final*plan.md
+.git_commit_msg.txt
+CLAUDe.md
+
+# local-only planning/status docs (not for the public repo)
+.private/
+
+currentState.txt
+whatIF.md

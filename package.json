@@ -1,0 +1,52 @@
+{
+  "name": "timebloker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "desktop:dev": "npm --prefix windows-app run dev",
+    "desktop:build": "npm run build && npm --prefix windows-app run build:win",
+    "test": "vitest run",
+    "typecheck": "tsc -b --noEmit",
+    "compare:analytics": "tsx scripts/compare-analytics.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-checkbox": "^1.3.7",
+    "@radix-ui/react-dialog": "^1.1.19",
+    "@radix-ui/react-popover": "^1.1.19",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@supabase/supabase-js": "^2.110.5",
+    "chrono-node": "^2.10.0",
+    "date-fns": "^4.4.0",
+    "fflate": "^0.8.3",
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2",
+    "vite-plugin-pwa": "^1.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "autoprefixer": "^10.5.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "oxlint": "^1.71.0",
+    "postcss": "^8.5.19",
+    "supabase": "^2.109.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vitest": "^5.0.1"
+  }
+}
