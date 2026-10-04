@@ -45,8 +45,12 @@ export interface FlowResult {
  * date boundary. This is the one place the run/chain algorithm is implemented; analyzeFlow's
  * pairwise counting and routinesFromBlocks's triple counting both walk these chains instead of
  * re-deriving the run/gap logic separately.
+ *
+ * `skip` (the routine skip list) takes activities out of the timeline as if they never happened: their blocks
+ * count as covered time, so they neither break a chain nor end a run, but they never become a run themselves.
+ * X -> A -> B becomes X -> B, and X -> A -> X is one X run. An empty or missing `skip` changes nothing.
  */
-function buildChains(input: FlowInput, dateKeys: string[], now: Date): string[][] {
+function buildChains(input: FlowInput, dateKeys: string[], now: Date, skip?: Set<string>): string[][] {
   const inRange = new Set(dateKeys);
   const byDate = new Map<string, (string | null)[]>();
   for (const b of input.blocks) {
@@ -58,18 +62,23 @@ function buildChains(input: FlowInput, dateKeys: string[], now: Date): string[][
     const day = byDate.get(dateKey);
     if (!day) continue;
     const elapsed = elapsedBlocksFor(dateKey, now);
-    const runs: { a: string; start: number; end: number }[] = [];
+    // gap = untracked blocks between a run's first block and the last covered block before it
+    const runs: { a: string; end: number; gap: number }[] = [];
+    let lastCovered = Number.NEGATIVE_INFINITY;
     for (let i = 0; i < elapsed; i++) {
       const a = day[i];
       if (!a) continue;
+      const gap = i - lastCovered - 1;
+      lastCovered = i;
+      if (skip?.has(a)) continue;
       const last = runs[runs.length - 1];
-      if (last && last.a === a && i - last.end - 1 < GAP_BREAK) { last.end = i; continue; }
-      runs.push({ a, start: i, end: i });
+      if (last && last.a === a && gap < GAP_BREAK) { last.end = i; continue; }
+      runs.push({ a, end: i, gap });
     }
     let chain: string[] = runs.length ? [runs[0].a] : [];
     for (let k = 1; k < runs.length; k++) {
-      const prev = runs[k - 1], cur = runs[k];
-      if (cur.start - prev.end - 1 >= GAP_BREAK) { chains.push(chain); chain = [cur.a]; continue; }
+      const cur = runs[k];
+      if (cur.gap >= GAP_BREAK) { chains.push(chain); chain = [cur.a]; continue; }
       chain.push(cur.a);
     }
     if (chain.length) chains.push(chain);
@@ -106,8 +115,10 @@ const routineCountsFromChains = (chains: string[][]): RoutineCountRow[] => {
 /**
  * Top routines from sequence counts (rows may repeat a sequence, e.g. one row per day; they are summed).
  * The "contained in a longer routine" rule depends on the range totals, so it runs here, never per day.
+ * `limit` caps the list (top 5 by default); Infinity returns every repeated routine.
  */
-export const rankRoutines = (rows: RoutineCountRow[]): { steps: string[]; count: number }[] => {
+export const ROUTINE_TOP = 5;
+export const rankRoutines = (rows: RoutineCountRow[], limit = ROUTINE_TOP): { steps: string[]; count: number }[] => {
   const seen = new Map<string, number>();
   for (const r of rows) {
     const k = r.steps.join('|');
@@ -125,10 +136,10 @@ export const rankRoutines = (rows: RoutineCountRow[]): { steps: string[]; count:
     .filter((r) => !repeated.some((o) => o.steps.length > r.steps.length && o.count >= r.count && contains(o.steps, r.steps)))
     // last tie-break on the ids so the top 5 doesn't depend on row order (backend rows and raw blocks arrive differently)
     .sort((a, b) => b.count - a.count || b.steps.length - a.steps.length || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
-    .slice(0, 5);
+    .slice(0, limit);
 };
 
-const routinesFromChains = (chains: string[][]) => rankRoutines(routineCountsFromChains(chains));
+const routinesFromChains = (chains: string[][], limit?: number) => rankRoutines(routineCountsFromChains(chains), limit);
 
 /** One run of a single activity within a day, as block indexes (inclusive). */
 export interface DayFlow { activityId: string; start: number; end: number }
@@ -161,8 +172,8 @@ export const buildDayFlows = (
 export const routinesFromBlocks = (
   input: FlowInput,
   dateKeys: string[],
-  opts: { now?: Date } = {}
-): { steps: string[]; count: number }[] => routinesFromChains(buildChains(input, dateKeys, opts.now ?? new Date()));
+  opts: { now?: Date; skip?: Set<string>; limit?: number } = {}
+): { steps: string[]; count: number }[] => routinesFromChains(buildChains(input, dateKeys, opts.now ?? new Date(), opts.skip), opts.limit);
 
 /** One day's sequence counts, exactly the rows get_daily_activity_routines(user, date) should produce (parity checks). */
 export const dailyRoutineCounts = (input: FlowInput, dateKey: string, opts: { now?: Date } = {}): RoutineCountRow[] =>
@@ -259,10 +270,10 @@ export const buildFlowResult = (
   transitionRows: { from_activity_id: string; to_activity_id: string; transition_count: number }[],
   routineRows: RoutineCountRow[],
   activities: FlowActivityInfo[],
-  opts: { topN?: number; minCount?: number } = {}
+  opts: { topN?: number; minCount?: number; routineLimit?: number } = {}
 ): FlowResult => ({
   ...flowMatrixFromTransitionRows(transitionRows, activities, opts),
-  routines: rankRoutines(routineRows),
+  routines: rankRoutines(routineRows, opts.routineLimit),
 });
 
 /** Raw-block version (export pack, tests): the same chains, counted into pairs, through the same matrix builder. */

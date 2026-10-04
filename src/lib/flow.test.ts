@@ -211,3 +211,41 @@ describe('routines of three to five steps and day flows', () => {
     expect(buildDayFlows(blocks, new Set(['z']), 3)).toEqual([{ activityId: 'a', start: 2, end: 2 }]);
   });
 });
+
+describe('routine skip list and full list', () => {
+  const NOW_R = new Date('2026-08-01T12:00:00');
+  const acts = ['x', 'a', 'b', 'c', 'y'].map((id) => ({ id, name: id }));
+  // each step is `len` blocks long, back to back from block 0
+  const day = (seq: string[], date: string, len = 3) =>
+    seq.flatMap((a, i) => Array.from({ length: len }, (_, k) => ({ date_key: date, block_index: i * len + k, activity_id: a })));
+  const routines = (blocks: RangeBlock[], dates: string[], opts: { skip?: Set<string>; limit?: number } = {}) =>
+    routinesFromBlocks({ blocks, activities: acts, sleepIds: new Set() }, dates, { now: NOW_R, ...opts });
+  const D = ['2026-07-01', '2026-07-02'];
+
+  it('an empty skip list gives the same routines as no skip list', () => {
+    const blocks = D.flatMap((d) => day(['x', 'a', 'b', 'c', 'y'], d));
+    expect(routines(blocks, D, { skip: new Set() })).toEqual(routines(blocks, D));
+  });
+
+  it('skipping A takes it out of the timeline: x -> a -> b -> y counts as x -> b -> y', () => {
+    const blocks = D.flatMap((d) => day(['x', 'a', 'b', 'y'], d));
+    expect(routines(blocks, D, { skip: new Set(['a']) })).toEqual([{ steps: ['x', 'b', 'y'], count: 2 }]);
+  });
+
+  it('a skipped stretch longer than 30 minutes does not break the chain', () => {
+    // a lasts 60 minutes (6 blocks); as untracked time that would split x from b
+    const blocks = D.flatMap((d) => [...day(['x'], d), ...day(['a'], d, 6).map((b) => ({ ...b, block_index: b.block_index + 3 })), ...day(['b', 'y'], d).map((b) => ({ ...b, block_index: b.block_index + 9 }))]);
+    expect(routines(blocks, D, { skip: new Set(['a']) })).toEqual([{ steps: ['x', 'b', 'y'], count: 2 }]);
+  });
+
+  it('x -> a -> x merges into one x run', () => {
+    const blocks = D.flatMap((d) => day(['b', 'x', 'a', 'x', 'c', 'y'], d));
+    expect(routines(blocks, D, { skip: new Set(['a']) })).toEqual([{ steps: ['b', 'x', 'c', 'y'], count: 2 }]);
+  });
+
+  it('rankRoutines returns the top five by default and everything with Infinity', () => {
+    const rows = Array.from({ length: 8 }, (_, i) => ({ steps: [`p${i}`, `q${i}`, `r${i}`], occurrences: 10 - i }));
+    expect(rankRoutines(rows)).toHaveLength(5);
+    expect(rankRoutines(rows, Infinity)).toHaveLength(8);
+  });
+});

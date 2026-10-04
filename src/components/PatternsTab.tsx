@@ -3,14 +3,15 @@ import type { Activity, SleepLog, Task, TaskFocusSession } from '../types';
 import type { RangeBlock } from '../lib/blockRange';
 import { useBlockRange } from '../hooks/useBlockRange';
 import { useRoutineAnalyticsRange, useTransitionAnalyticsRange } from '../hooks/useAnalyticsRange';
-import { buildFlowResult, FLOW_OTHER } from '../lib/flow';
+import { buildFlowResult, FLOW_OTHER, ROUTINE_TOP, routinesFromBlocks } from '../lib/flow';
 import { formatMinuteOfDay } from '../lib/focusModel';
 import { blindSpots, DEFAULT_RANGE, getRangeWindow, loggingGaps, type InsightRange } from '../lib/insights';
+import { getSleepActivityIds } from '../lib/sleepActivity';
 import { SleepInsights } from './SleepInsights';
 import { RangePicker, type RangeState } from './RangePicker';
 import { PatternsDayView } from './DayModeViews';
 import { Card } from './TrendsTab';
-import { StatTile } from './ui/detail';
+import { StatTile, useNerdMode } from './ui/detail';
 import { Takeaways } from './ui/takeaways';
 import { patternsTakeaways } from '../lib/takeaways';
 import { FULL, pageClass } from './ui/page';
@@ -29,6 +30,23 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_PLURALS = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
 const MIN_CELL = 5;
 
+// Activities taken out of routine detection. Per device (this browser only), edited in nerd mode, applied in both modes.
+const SKIP_KEY = 'blockday.routineSkip';
+const readSkip = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(SKIP_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+};
+const useRoutineSkip = () => {
+  const [skip, setSkipState] = useState<string[]>(readSkip);
+  const setSkip = (next: string[]) => {
+    setSkipState(next);
+    try { localStorage.setItem(SKIP_KEY, JSON.stringify(next)); } catch { /* storage unavailable: keeps working for this visit */ }
+  };
+  return [skip, setSkip] as const;
+};
+
 /** Patterns: what follows what, where the data is blind, and how sleep lines up with the next day. */
 const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities, tasks, focusSessions, sleepLogs, blocks: liveBlocks, selectedDate, range, setRange }) => {
   const win = useMemo(() => getRangeWindow(range, selectedDate), [range, selectedDate]);
@@ -40,10 +58,29 @@ const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities
   const { rows: routineRows, loading: routinesLoading } = useRoutineAnalyticsRange(win.startKey, win.endKey);
   const loading = blocksLoading || transitionsLoading || routinesLoading;
 
+  const { nerd } = useNerdMode();
+  const [skipIds, setSkipIds] = useRoutineSkip();
+  const [allRoutines, setAllRoutines] = useState(false);
+  // only skip activities that still exist, so a deleted one can't silently hide anything
+  const skip = useMemo(() => new Set(skipIds.filter((id) => activities.some((a) => a.id === id))), [skipIds, activities]);
+
   const flow = useMemo(
-    () => buildFlowResult(transitionRows, routineRows, activities),
+    () => buildFlowResult(transitionRows, routineRows, activities, { routineLimit: Infinity }),
     [transitionRows, routineRows, activities]
   );
+  // The backend stores sequences with every activity in them, so a skipped activity can't be cut out of those rows.
+  // With anything skipped, routines are found from the raw blocks already loaded for the gaps map below instead.
+  const routines = useMemo(() => {
+    if (skip.size === 0) return flow.routines;
+    const sleepIds = getSleepActivityIds(activities);
+    return routinesFromBlocks({ blocks, activities, sleepIds }, win.dateKeys, { skip, limit: Infinity });
+  }, [skip, flow.routines, blocks, activities, win.dateKeys]);
+  const shownRoutines = allRoutines ? routines : routines.slice(0, ROUTINE_TOP);
+  const skippable = useMemo(() => {
+    const inRoutines = new Set((skip.size ? routines : flow.routines).flatMap((r) => r.steps));
+    return activities.filter((a) => inRoutines.has(a.id) && !skip.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
+  }, [routines, flow.routines, activities, skip]);
+  const skippedNames = activities.filter((a) => skip.has(a.id)).map((a) => a.name);
   const gaps = useMemo(() => loggingGaps(blocks, win.dateKeys), [blocks, win.dateKeys]);
   const spots = useMemo(() => blindSpots(gaps.cells), [gaps]);
   const takeaways = useMemo(() => {
@@ -136,18 +173,55 @@ const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities
               </div>
               <div>
                 <div className="text-[11px] text-muted-foreground mb-1 font-medium">Most common routines</div>
-                {flow.routines.length === 0 ? (
+                {routines.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No sequence of three to five steps repeated yet.</p>
                 ) : (
                   <ul className="text-xs space-y-1">
-                    {flow.routines.map((rt) => (
-                      <li key={rt.steps.join('>')}>{rt.steps.map((s) => flow.names[s]).join(' → ')} <span className="text-muted-foreground">× {rt.count}</span></li>
+                    {shownRoutines.map((rt) => (
+                      <li key={rt.steps.join('>')}>{rt.steps.map((s) => flow.names[s] ?? '?').join(' → ')} <span className="text-muted-foreground">× {rt.count}</span></li>
                     ))}
                   </ul>
                 )}
+                {routines.length > ROUTINE_TOP && (
+                  <button onClick={() => setAllRoutines((v) => !v)} className="mt-1.5 text-[11px] font-medium text-primary hover:underline">
+                    {allRoutines ? 'Show fewer' : `Show all ${routines.length}`}
+                  </button>
+                )}
+                {nerd ? (
+                  <div className="mt-3 pt-2 border-t border-border/60">
+                    <div className="text-[11px] text-muted-foreground mb-1.5 font-medium" title="Skipped activities are taken out of the timeline before routines are found, so the steps around them join up and other activities get the room.">Skip in routines</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {activities.filter((a) => skip.has(a.id)).map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => setSkipIds(skipIds.filter((id) => id !== a.id))}
+                          className="inline-flex items-center gap-1 rounded-full bg-muted pl-2 pr-1.5 py-0.5 text-[11px] hover:bg-accent"
+                          aria-label={`Stop skipping ${a.name}`}
+                          title={`Stop skipping ${a.name}`}
+                        >
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: a.color }} />{a.name}<span className="text-muted-foreground">×</span>
+                        </button>
+                      ))}
+                      {skippable.length > 0 && (
+                        <select
+                          value=""
+                          onChange={(e) => { if (e.target.value) setSkipIds([...skipIds.filter((id) => skip.has(id)), e.target.value]); }}
+                          className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                          aria-label="Skip an activity in routines"
+                        >
+                          <option value="">+ Skip activity</option>
+                          {skippable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        </select>
+                      )}
+                      {skip.size === 0 && skippable.length === 0 && <span className="text-[11px] text-muted-foreground">No routines to skip from yet.</span>}
+                    </div>
+                  </div>
+                ) : skippedNames.length > 0 && (
+                  <p className="mt-2 text-[10px] text-muted-foreground">Skipping {skippedNames.join(', ')} · change in nerd mode</p>
+                )}
               </div>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-3">Sleep is left out. Ignored activities (like travel) are kept here because they are real steps in your routine. Rows with under {MIN_CELL} changes are shaded faintly.</p>
+            <p className="text-[10px] text-muted-foreground mt-3">Sleep is left out. Ignored activities (like travel) are kept here because they are real steps in your routine; to leave one out of routines, skip it above in nerd mode (this device only). Rows with under {MIN_CELL} changes are shaded faintly.</p>
           </>
         )}
       </Card>
