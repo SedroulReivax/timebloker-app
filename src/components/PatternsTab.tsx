@@ -2,11 +2,10 @@ import React, { useMemo, useState } from 'react';
 import type { Activity, SleepLog, Task, TaskFocusSession } from '../types';
 import type { RangeBlock } from '../lib/blockRange';
 import { useBlockRange } from '../hooks/useBlockRange';
-import { useTransitionAnalyticsRange } from '../hooks/useAnalyticsRange';
+import { useRoutineAnalyticsRange, useTransitionAnalyticsRange } from '../hooks/useAnalyticsRange';
 import { buildFlowResult, FLOW_OTHER } from '../lib/flow';
 import { formatMinuteOfDay } from '../lib/focusModel';
 import { blindSpots, DEFAULT_RANGE, getRangeWindow, loggingGaps, type InsightRange } from '../lib/insights';
-import { getSleepActivityIds } from '../lib/sleepActivity';
 import { SleepInsights } from './SleepInsights';
 import { RangePicker, type RangeState } from './RangePicker';
 import { PatternsDayView } from './DayModeViews';
@@ -33,18 +32,17 @@ const MIN_CELL = 5;
 /** Patterns: what follows what, where the data is blind, and how sleep lines up with the next day. */
 const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities, tasks, focusSessions, sleepLogs, blocks: liveBlocks, selectedDate, range, setRange }) => {
   const win = useMemo(() => getRangeWindow(range, selectedDate), [range, selectedDate]);
-  // Still needed for routines (3-step chains, structurally unrecoverable from stored pairwise
-  // sums) and the logging-gap heatmap below, which is hour-of-day grain -- analytics_daily is
-  // day-grain only, no hourly breakdown exists or is planned, a genuine scoping limitation, not
-  // a "keep for sophistication" choice like routines.
+  // Raw blocks are still needed for the logging-gap heatmap below, which is hour-of-day grain --
+  // analytics_daily is day-grain only, no hourly breakdown exists or is planned. The flow matrix and
+  // routines both come from backend tables (analytics_transition_daily / analytics_routine_daily).
   const { blocks, loading: blocksLoading } = useBlockRange(win.startKey, win.endKey, liveBlocks);
   const { rows: transitionRows, loading: transitionsLoading } = useTransitionAnalyticsRange(win.startKey, win.endKey);
-  const loading = blocksLoading || transitionsLoading;
-  const sleepIds = useMemo(() => getSleepActivityIds(activities), [activities]);
+  const { rows: routineRows, loading: routinesLoading } = useRoutineAnalyticsRange(win.startKey, win.endKey);
+  const loading = blocksLoading || transitionsLoading || routinesLoading;
 
   const flow = useMemo(
-    () => buildFlowResult(transitionRows as any[], { blocks, activities, sleepIds }, win.dateKeys),
-    [transitionRows, blocks, activities, sleepIds, win.dateKeys]
+    () => buildFlowResult(transitionRows, routineRows, activities),
+    [transitionRows, routineRows, activities]
   );
   const gaps = useMemo(() => loggingGaps(blocks, win.dateKeys), [blocks, win.dateKeys]);
   const spots = useMemo(() => blindSpots(gaps.cells), [gaps]);

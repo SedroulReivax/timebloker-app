@@ -13,6 +13,7 @@ union all select 'analytics_activity_daily', count(*) from public.analytics_acti
 union all select 'analytics_goal_daily', count(*) from public.analytics_goal_daily
 union all select 'analytics_habit_daily', count(*) from public.analytics_habit_daily
 union all select 'analytics_transition_daily', count(*) from public.analytics_transition_daily
+union all select 'analytics_routine_daily', count(*) from public.analytics_routine_daily
 union all select 'analytics_dirty_dates', count(*) from public.analytics_dirty_dates
 union all select 'analytics_runs', count(*) from public.analytics_runs
 union all select 'analytics_state', count(*) from public.analytics_state
@@ -25,10 +26,10 @@ where routine_schema = 'public'
   and routine_name in (
     'get_sleep_activity_ids', 'get_session_covered_blocks', 'get_daily_tracked_coverage',
     'get_elapsed_blocks', 'get_daily_activity_breakdown', 'get_daily_goal_progress',
-    'get_daily_habit_status', 'get_daily_activity_transitions',
+    'get_daily_habit_status', 'get_daily_activity_transitions', 'get_daily_activity_routines',
     'recompute_daily_analytics', 'rebuild_analytics_range', 'get_daily_analytics_range',
     'get_activity_analytics_range', 'get_goal_analytics_range', 'get_habit_analytics_range',
-    'get_transition_analytics_range', 'get_dashboard_summary',
+    'get_transition_analytics_range', 'get_routine_analytics_range', 'get_dashboard_summary',
     'mark_analytics_dirty', 'mark_activity_dates_dirty', 'mark_goal_dates_dirty',
     'process_dirty_analytics', 'process_dirty_analytics_for_user',
     'drain_all_dirty_analytics', 'repair_recent_analytics'

@@ -6,6 +6,7 @@ import {
   goalAnalyticsCache,
   habitAnalyticsCache,
   transitionAnalyticsCache,
+  routineAnalyticsCache,
   analyticsGeneration,
   subscribeAnalyticsInvalidation,
   type RangeCache,
@@ -57,3 +58,5 @@ export const useActivityAnalyticsRange = (fromKey: string, toKey: string) => use
 export const useGoalAnalyticsRange = (fromKey: string, toKey: string) => useCachedRange(goalAnalyticsCache, fromKey, toKey);
 export const useHabitAnalyticsRange = (fromKey: string, toKey: string) => useCachedRange(habitAnalyticsCache, fromKey, toKey);
 export const useTransitionAnalyticsRange = (fromKey: string, toKey: string) => useCachedRange(transitionAnalyticsCache, fromKey, toKey);
+/** Range totals, not per-day rows (get_routine_analytics_range sums server-side). */
+export const useRoutineAnalyticsRange = (fromKey: string, toKey: string) => useCachedRange(routineAnalyticsCache, fromKey, toKey);

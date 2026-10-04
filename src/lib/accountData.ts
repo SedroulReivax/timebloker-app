@@ -12,6 +12,7 @@ export const WIPE_ORDER = [
   'ai_analysis_cache',
   'analytics_runs',
   'analytics_dirty_dates',
+  'analytics_routine_daily',
   'analytics_transition_daily',
   'analytics_habit_daily',
   'analytics_goal_daily',

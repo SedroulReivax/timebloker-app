@@ -81,6 +81,14 @@ export async function fetchTransitionAnalytics(from: string, to: string) {
   return data;
 }
 
+/** Range totals of repeated 3-5 step sequences (seen 2+ times), not per-day rows; see flow.ts rankRoutines. */
+export async function fetchRoutineAnalytics(from: string, to: string) {
+  const userId = await requireUserId();
+  const { data, error } = await supabase.rpc('get_routine_analytics_range', { p_user_id: userId, p_from: from, p_to: to });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function fetchAnalyticsState(): Promise<{ data_version: number; analytics_version: number; last_recompute_at: string | null } | null> {
   const userId = await requireUserId();
   const { data, error } = await supabase.from('analytics_state').select('data_version, analytics_version, last_recompute_at').eq('user_id', userId).maybeSingle();

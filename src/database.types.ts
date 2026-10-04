@@ -333,6 +333,36 @@ export type Database = {
         }
         Relationships: []
       }
+      analytics_routine_daily: {
+        Row: {
+          analytics_version: number
+          calculated_at: string
+          date_key: string
+          model_version: number
+          occurrences: number
+          steps: string[]
+          user_id: string
+        }
+        Insert: {
+          analytics_version?: number
+          calculated_at?: string
+          date_key: string
+          model_version?: number
+          occurrences?: number
+          steps: string[]
+          user_id: string
+        }
+        Update: {
+          analytics_version?: number
+          calculated_at?: string
+          date_key?: string
+          model_version?: number
+          occurrences?: number
+          steps?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
       analytics_dirty_dates: {
         Row: {
           attempts: number
@@ -963,6 +993,14 @@ export type Database = {
       get_daily_activity_transitions: {
         Args: { p_date: string; p_user_id: string }
         Returns: { from_activity_id: string; to_activity_id: string; transition_count: number }[]
+      }
+      get_daily_activity_routines: {
+        Args: { p_date: string; p_user_id: string }
+        Returns: { occurrences: number; steps: string[] }[]
+      }
+      get_routine_analytics_range: {
+        Args: { p_from: string; p_to: string; p_user_id: string }
+        Returns: { occurrences: number; steps: string[] }[]
       }
       get_dashboard_summary: {
         Args: { p_from: string; p_to: string; p_user_id: string }

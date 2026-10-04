@@ -78,16 +78,19 @@ function buildChains(input: FlowInput, dateKeys: string[], now: Date): string[][
 }
 
 /**
- * Most common three-step chains (A -> B -> C). This cannot be reconstructed from stored pairwise
- * transition_count sums alone -- a day with an A->B pair and a B->C pair does not tell you
- * whether A->B->C happened in sequence or the two pairs came from unrelated moments in the day --
- * so this stays raw-block-based even once the pairwise matrix moves to the backend (see
- * flowMatrixFromTransitionRows / buildFlowResult below).
+ * Routines: the most common three- to five-step chains (A -> B -> C ...). These cannot be rebuilt
+ * from stored pairwise transition_count sums -- a day with an A->B pair and a B->C pair does not tell
+ * you whether A->B->C happened in sequence -- so the backend stores its own per-day sequence counts
+ * (analytics_routine_daily, written by get_daily_activity_routines in SQL). routineCountsFromChains
+ * below is the reference for that SQL: every window of 3, 4 and 5 steps over every chain is one
+ * occurrence. rankRoutines then works the same on either source.
  */
 const ROUTINE_MIN_STEPS = 3;
 const ROUTINE_MAX_STEPS = 5;
 
-const routinesFromChains = (chains: string[][]): { steps: string[]; count: number }[] => {
+export interface RoutineCountRow { steps: string[]; occurrences: number }
+
+const routineCountsFromChains = (chains: string[][]): RoutineCountRow[] => {
   const seen = new Map<string, number>();
   for (const chain of chains) {
     for (let len = ROUTINE_MIN_STEPS; len <= ROUTINE_MAX_STEPS; len++) {
@@ -97,6 +100,19 @@ const routinesFromChains = (chains: string[][]): { steps: string[]; count: numbe
       }
     }
   }
+  return [...seen.entries()].map(([k, occurrences]) => ({ steps: k.split('|'), occurrences }));
+};
+
+/**
+ * Top routines from sequence counts (rows may repeat a sequence, e.g. one row per day; they are summed).
+ * The "contained in a longer routine" rule depends on the range totals, so it runs here, never per day.
+ */
+export const rankRoutines = (rows: RoutineCountRow[]): { steps: string[]; count: number }[] => {
+  const seen = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.steps.join('|');
+    seen.set(k, (seen.get(k) ?? 0) + r.occurrences);
+  }
   const repeated = [...seen.entries()].filter(([, c]) => c >= 2).map(([k, count]) => ({ steps: k.split('|'), count }));
   // A routine inside a longer one seen just as often is the same habit, not a second one ("A→B→C" is implied by
   // "A→B→C→D" seen 4x). It stays when it also happens on its own, i.e. more often than the longer sequence.
@@ -104,11 +120,15 @@ const routinesFromChains = (chains: string[][]): { steps: string[]; count: numbe
     for (let i = 0; i + short.length <= long.length; i++) if (short.every((s, j) => long[i + j] === s)) return true;
     return false;
   };
+  const key = (r: { steps: string[] }) => r.steps.join('|');
   return repeated
     .filter((r) => !repeated.some((o) => o.steps.length > r.steps.length && o.count >= r.count && contains(o.steps, r.steps)))
-    .sort((a, b) => b.count - a.count || b.steps.length - a.steps.length)
+    // last tie-break on the ids so the top 5 doesn't depend on row order (backend rows and raw blocks arrive differently)
+    .sort((a, b) => b.count - a.count || b.steps.length - a.steps.length || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
     .slice(0, 5);
 };
+
+const routinesFromChains = (chains: string[][]) => rankRoutines(routineCountsFromChains(chains));
 
 /** One run of a single activity within a day, as block indexes (inclusive). */
 export interface DayFlow { activityId: string; start: number; end: number }
@@ -144,11 +164,16 @@ export const routinesFromBlocks = (
   opts: { now?: Date } = {}
 ): { steps: string[]; count: number }[] => routinesFromChains(buildChains(input, dateKeys, opts.now ?? new Date()));
 
+/** One day's sequence counts, exactly the rows get_daily_activity_routines(user, date) should produce (parity checks). */
+export const dailyRoutineCounts = (input: FlowInput, dateKey: string, opts: { now?: Date } = {}): RoutineCountRow[] =>
+  routineCountsFromChains(buildChains(input, [dateKey], opts.now ?? new Date()));
+
 /**
  * Pairwise transition matrix/strongest-links built from already-aggregated transition rows
  * (analytics_transition_daily -- a verified SQL port of this file's run/chain algorithm, summed
  * over a range and grouped by from/to), instead of re-deriving pair counts from raw blocks.
- * `routines` is deliberately not part of this function's output -- see routinesFromBlocks above.
+ * `routines` is deliberately not part of this function's output -- they come from their own
+ * sequence counts (rankRoutines above).
  */
 export const flowMatrixFromTransitionRows = (
   rows: { from_activity_id: string; to_activity_id: string; transition_count: number }[],
@@ -226,19 +251,18 @@ export const flowMatrixFromTransitionRows = (
 };
 
 /**
- * Combines the backend-fed pairwise matrix with the still-raw-block-based routines into one
- * FlowResult, so PatternsTab's rendering code needs no changes -- the shape is identical to
- * analyzeFlow's. `routineBlocks` should be the same bounded raw-block fetch the screen already
- * needs for routines/logging-gap analysis, not a new fetch.
+ * Combines the backend-fed pairwise matrix with the backend-fed routine counts
+ * (get_routine_analytics_range) into one FlowResult, so PatternsTab's rendering code needs no
+ * changes -- the shape is identical to analyzeFlow's.
  */
 export const buildFlowResult = (
   transitionRows: { from_activity_id: string; to_activity_id: string; transition_count: number }[],
-  routineBlocks: FlowInput,
-  dateKeys: string[],
-  opts: { now?: Date; topN?: number; minCount?: number } = {}
+  routineRows: RoutineCountRow[],
+  activities: FlowActivityInfo[],
+  opts: { topN?: number; minCount?: number } = {}
 ): FlowResult => ({
-  ...flowMatrixFromTransitionRows(transitionRows, routineBlocks.activities, opts),
-  routines: routinesFromBlocks(routineBlocks, dateKeys, opts),
+  ...flowMatrixFromTransitionRows(transitionRows, activities, opts),
+  routines: rankRoutines(routineRows),
 });
 
 /** Raw-block version (export pack, tests): the same chains, counted into pairs, through the same matrix builder. */

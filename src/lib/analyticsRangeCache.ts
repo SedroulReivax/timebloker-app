@@ -4,6 +4,7 @@ import {
   fetchGoalAnalytics,
   fetchHabitAnalytics,
   fetchTransitionAnalytics,
+  fetchRoutineAnalytics,
 } from './backendAnalytics';
 import type { Database } from '../database.types';
 
@@ -50,12 +51,14 @@ type ActivityDailyRow = Database['public']['Tables']['analytics_activity_daily']
 type GoalDailyRow = Database['public']['Tables']['analytics_goal_daily']['Row'];
 type HabitDailyRow = Database['public']['Tables']['analytics_habit_daily']['Row'];
 type TransitionDailyRow = Database['public']['Tables']['analytics_transition_daily']['Row'];
+type RoutineRangeRow = Database['public']['Functions']['get_routine_analytics_range']['Returns'][number];
 
 export const dailyAnalyticsCache = createRangeCache<DailyRow>(fetchDailyAnalytics as (from: string, to: string) => Promise<DailyRow[]>);
 export const activityAnalyticsCache = createRangeCache<ActivityDailyRow>(fetchActivityAnalytics as (from: string, to: string) => Promise<ActivityDailyRow[]>);
 export const goalAnalyticsCache = createRangeCache<GoalDailyRow>(fetchGoalAnalytics as (from: string, to: string) => Promise<GoalDailyRow[]>);
 export const habitAnalyticsCache = createRangeCache<HabitDailyRow>(fetchHabitAnalytics as (from: string, to: string) => Promise<HabitDailyRow[]>);
 export const transitionAnalyticsCache = createRangeCache<TransitionDailyRow>(fetchTransitionAnalytics as (from: string, to: string) => Promise<TransitionDailyRow[]>);
+export const routineAnalyticsCache = createRangeCache<RoutineRangeRow>(fetchRoutineAnalytics as (from: string, to: string) => Promise<RoutineRangeRow[]>);
 
 // Clearing the caches alone only helps the next screen that mounts: a screen that is already open
 // keeps the rows it fetched. So every invalidation also bumps a generation number that
@@ -79,6 +82,7 @@ export function invalidateAnalyticsRangeCaches() {
   goalAnalyticsCache.invalidate();
   habitAnalyticsCache.invalidate();
   transitionAnalyticsCache.invalidate();
+  routineAnalyticsCache.invalidate();
   generation++;
   for (const l of listeners) l();
 }

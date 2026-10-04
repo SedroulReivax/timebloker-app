@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeFlow, buildDayFlows, buildFlowResult, flowMatrixFromTransitionRows, routinesFromBlocks, FLOW_OTHER } from './flow';
+import { analyzeFlow, buildDayFlows, buildFlowResult, dailyRoutineCounts, flowMatrixFromTransitionRows, rankRoutines, routinesFromBlocks, FLOW_OTHER } from './flow';
 import { blindSpots, loggingGaps } from './insights';
 import type { RangeBlock } from './blockRange';
 
@@ -67,13 +67,61 @@ describe('flowMatrixFromTransitionRows / buildFlowResult', () => {
     expect('routines' in m).toBe(false);
   });
 
-  it('buildFlowResult merges the backend-fed matrix with routines computed from the given raw blocks', () => {
-    const blocks = days.flatMap((d) => [...run(d, 0, 40, 'z'), ...run(d, 41, 43, 'tr'), ...run(d, 44, 50, 'code'), ...run(d, 51, 52, 'mail')]);
-    const expectedRoutines = routinesFromBlocks({ blocks, activities: acts, sleepIds: new Set(['z']) }, days, { now: NOW });
+  it('buildFlowResult merges the backend-fed matrix with backend-fed routine counts, matching the raw-block routines', () => {
+    const input = { blocks: days.flatMap((d) => [...run(d, 0, 40, 'z'), ...run(d, 41, 43, 'tr'), ...run(d, 44, 50, 'code'), ...run(d, 51, 52, 'mail')]), activities: acts, sleepIds: new Set(['z']) };
+    const expectedRoutines = routinesFromBlocks(input, days, { now: NOW });
+    // what analytics_routine_daily holds: one row per day per sequence
+    const routineRows = days.flatMap((d) => dailyRoutineCounts(input, d, { now: NOW }));
     const rows = [{ from_activity_id: 'x', to_activity_id: 'y', transition_count: 9 }];
-    const r = buildFlowResult(rows, { blocks, activities: acts, sleepIds: new Set(['z']) }, days, { now: NOW, minCount: 2 });
+    const r = buildFlowResult(rows, routineRows, acts, { minCount: 2 });
     expect(r.routines).toEqual(expectedRoutines);
+    expect(r.routines[0]).toEqual({ steps: ['tr', 'code', 'mail'], count: 5 });
     expect(r.totalTransitions).toBe(9);
+  });
+});
+
+describe('dailyRoutineCounts (the reference for SQL get_daily_activity_routines)', () => {
+  const input = (blocks: RangeBlock[]) => ({ blocks, activities: acts, sleepIds: new Set(['z']) });
+  const d = days[0];
+
+  it('counts every 3-, 4- and 5-step window of a chain once', () => {
+    const blocks = ['mail', 'yt', 'code', 'mail', 'yt', 'a5'].flatMap((a, i) => run(d, 60 + i * 2, 61 + i * 2, a));
+    const rows = dailyRoutineCounts(input(blocks), d, { now: NOW });
+    const byKey = Object.fromEntries(rows.map((r) => [r.steps.join('>'), r.occurrences]));
+    expect(rows).toHaveLength(4 + 3 + 2); // six runs: four 3-step, three 4-step, two 5-step windows, all different
+    expect(byKey['mail>yt>code']).toBe(1);
+    expect(byKey['mail>yt>a5']).toBe(1);
+    expect(byKey['yt>code>mail>yt>a5']).toBe(1);
+  });
+
+  it('merges a run across a short gap, breaks the chain at 30 minutes, and drops sleep', () => {
+    const blocks = [
+      ...run(d, 10, 11, 'mail'), ...run(d, 14, 15, 'mail'), // 20 min gap: one mail run
+      ...run(d, 16, 17, 'z'), // sleep removed, leaving a 20 min gap: chain continues
+      ...run(d, 18, 19, 'yt'), ...run(d, 20, 21, 'code'),
+      ...run(d, 25, 26, 'a5'), // 30 min gap: new chain
+      ...run(d, 27, 28, 'a6'), ...run(d, 29, 30, 'mail'),
+    ];
+    const rows = dailyRoutineCounts(input(blocks), d, { now: NOW });
+    expect(rows.map((r) => r.steps.join('>')).sort()).toEqual(['a5>a6>mail', 'mail>yt>code']);
+  });
+
+  it('cuts today at the elapsed block', () => {
+    const now = new Date(2026, 8, 21, 10, 0); // block 60 is the first not yet elapsed
+    const blocks = ['mail', 'yt', 'code'].flatMap((a, i) => run(d, 56 + i * 2, 57 + i * 2, a));
+    expect(dailyRoutineCounts(input(blocks), d, { now })).toEqual([]);
+  });
+});
+
+describe('rankRoutines', () => {
+  it('sums rows for the same sequence, needs 2+ in total, and breaks ties on the ids', () => {
+    const r = rankRoutines([
+      { steps: ['b', 'c', 'd'], occurrences: 1 },
+      { steps: ['b', 'c', 'd'], occurrences: 1 },
+      { steps: ['a', 'c', 'd'], occurrences: 2 },
+      { steps: ['x', 'y', 'z'], occurrences: 1 },
+    ]);
+    expect(r).toEqual([{ steps: ['a', 'c', 'd'], count: 2 }, { steps: ['b', 'c', 'd'], count: 2 }]);
   });
 });
 
