@@ -8,6 +8,7 @@ import { useBlockRange } from '../hooks/useBlockRange';
 import { dayVsTypical, elapsedBlocksFor, profileDays, summarize, type DayMetric, type DayProfile } from '../lib/analysis';
 import { findRuns, judgedDays, TIMER_ID } from '../lib/activityFocus';
 import { analyzeWaste } from '../lib/waste';
+import { buildDayFlows } from '../lib/flow';
 import { formatMinuteOfDay } from '../lib/focusModel';
 import { getActivityDistribution, getCoverage, getRangeWindow } from '../lib/insights';
 import { getSleepActivityIds } from '../lib/sleepActivity';
@@ -388,24 +389,20 @@ export const WasteDayView: React.FC<DayBase> = (props) => {
 
 export const PatternsDayView: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: SleepLog[] }> = (props) => {
   const d = useDayData(props);
-  const chains = useMemo(() => {
-    const day: (string | null)[] = new Array(144).fill(null);
-    for (const b of d.dayBlocks) if (b.activity_id && !d.sleepIds.has(b.activity_id)) day[b.block_index] = b.activity_id;
-    const runs: { a: string; start: number; end: number }[] = [];
-    for (let i = 0; i < 144; i++) {
-      const a = day[i];
-      if (!a) continue;
-      const last = runs[runs.length - 1];
-      if (last && last.a === a && i - last.end - 1 < 3) { last.end = i; continue; }
-      runs.push({ a, start: i, end: i });
-    }
-    const out: (typeof runs)[] = [];
-    for (const r of runs) {
-      const cur = out[out.length - 1];
-      if (cur && r.start - cur[cur.length - 1].end - 1 < 3) cur.push(r); else out.push([r]);
-    }
+  const flows = useMemo(() => buildDayFlows(d.dayBlocks, d.sleepIds, d.elapsed), [d.dayBlocks, d.sleepIds, d.elapsed]);
+  const segments = useMemo(() => {
+    const cells: string[] = new Array(144).fill('gap');
+    for (let i = 0; i < 144; i++) if (i >= d.elapsed) cells[i] = 'future';
+    for (const b of d.dayBlocks) if (b.activity_id && d.sleepIds.has(b.activity_id)) cells[b.block_index] = 'sleep';
+    flows.forEach((f, n) => { for (let i = f.start; i <= f.end; i++) cells[i] = `flow:${n}`; });
+    const out: { key: string; start: number; end: number }[] = [];
+    cells.forEach((key, i) => {
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.end = i; else out.push({ key, start: i, end: i });
+    });
     return out;
-  }, [d.dayBlocks, d.sleepIds]);
+  }, [flows, d.dayBlocks, d.sleepIds, d.elapsed]);
+  const longest = flows.reduce((m, f) => Math.max(m, f.end - f.start + 1), 0);
   const gapSlots = useMemo(() => {
     const tracked = new Set(d.dayBlocks.filter((b) => b.activity_id).map((b) => b.block_index));
     const slots = new Array(SLOT_COUNT).fill(0);
@@ -417,21 +414,33 @@ export const PatternsDayView: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: S
 
   return (
     <Frame d={d} {...props}>
-      <Card id="dv-flow" className={FULL} title="How the day flowed" hint="Each line is a chain of activities with less than 30 minutes between them. A longer gap starts a new line. Sleep is left out.">
-        {chains.length === 0 ? <p className="text-sm text-muted-foreground">Nothing tracked this day.</p> : (
-          <ol className="space-y-2 text-xs">
-            {chains.map((c) => (
-              <li key={c[0].start}>
-                <span className="ibm-mono text-muted-foreground mr-2">{blockTime(c[0].start)}–{blockTime(c[c.length - 1].end + 1)}</span>
-                {c.map((r, i) => (
-                  <span key={r.start}>
-                    {i > 0 && <span className="text-muted-foreground"> → </span>}
-                    <span className="font-medium">{nameOf(r.a)}</span> <span className="text-muted-foreground">{formatMinutes((r.end - r.start + 1) * 10)}</span>
-                  </span>
-                ))}
-              </li>
-            ))}
-          </ol>
+      <Card id="dv-flow" className={FULL} title="How the day flowed" hint="Each block is one flow: an unbroken stretch of a single activity. Changing activity starts a new flow, and so does 20 minutes or more untracked. Hatched is untracked, grey is sleep, faded is still to come.">
+        {flows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing tracked this day.</p> : (
+          <>
+            <div className="flex h-8 w-full overflow-hidden rounded-md bg-muted/40" role="img" aria-label={`${flows.length} flows, the longest ${formatMinutes(longest * 10)}`}>
+              {segments.map((s) => {
+                const flow = s.key.startsWith('flow:') ? flows[Number(s.key.slice(5))] : null;
+                const label = flow ? nameOf(flow.activityId) : s.key === 'gap' ? 'Untracked' : s.key === 'sleep' ? 'Sleep' : 'Later';
+                const style: React.CSSProperties = { width: `${((s.end - s.start + 1) / 144) * 100}%` };
+                if (flow) style.backgroundColor = props.activities.find((a) => a.id === flow.activityId)?.color || 'hsl(var(--primary))';
+                else if (s.key === 'gap') style.backgroundImage = 'repeating-linear-gradient(45deg, transparent 0 3px, hsl(var(--foreground) / 0.18) 3px 4px)';
+                else if (s.key === 'sleep') style.backgroundColor = 'hsl(var(--muted-foreground) / 0.35)';
+                return <div key={s.start} title={`${blockTime(s.start)}–${blockTime(s.end + 1)} · ${label}`} className={`h-full border-r border-background/70 last:border-r-0 ${s.key === 'future' ? 'opacity-30' : ''}`} style={style} />;
+              })}
+            </div>
+            <StripAxis />
+            <p className="mt-3 text-xs text-muted-foreground">{flows.length} flow{flows.length === 1 ? '' : 's'} · longest {formatMinutes(longest * 10)}</p>
+            <ol className="mt-2 space-y-1 text-xs">
+              {flows.map((f) => (
+                <li key={f.start} className="flex items-center gap-2">
+                  <span className="ibm-mono text-muted-foreground w-[7.5rem] shrink-0">{blockTime(f.start)}–{blockTime(f.end + 1)}</span>
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: props.activities.find((a) => a.id === f.activityId)?.color || 'hsl(var(--primary))' }} />
+                  <span className="font-medium">{nameOf(f.activityId)}</span>
+                  <span className="text-muted-foreground">{formatMinutes((f.end - f.start + 1) * 10)}</span>
+                </li>
+              ))}
+            </ol>
+          </>
         )}
       </Card>
       <Card id="dv-gaps" detail summary={`${formatMinutes(untracked)} untracked`} title="Where tracking is missing" hint={`${formatMinutes(untracked)} of ${d.today ? 'the day so far' : 'the day'} has nothing recorded. Darker means more of that half hour is untracked.`}>

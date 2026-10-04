@@ -139,7 +139,7 @@ const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities
               <div>
                 <div className="text-[11px] text-muted-foreground mb-1 font-medium">Most common routines</div>
                 {flow.routines.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No three-step sequence repeated yet.</p>
+                  <p className="text-xs text-muted-foreground">No sequence of three to five steps repeated yet.</p>
                 ) : (
                   <ul className="text-xs space-y-1">
                     {flow.routines.map((rt) => (

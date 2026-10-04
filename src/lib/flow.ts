@@ -32,7 +32,7 @@ export interface FlowResult {
   totalTransitions: number;
   /** strongest links with at least `minCount` observations, by probability */
   strongest: FlowLink[];
-  /** most common three-step chains A -> B -> C */
+  /** most common three- to five-step chains (A -> B -> C ...), longest-first when equally common */
   routines: { steps: string[]; count: number }[];
   names: Record<string, string>;
   colors: Record<string, string>;
@@ -84,19 +84,58 @@ function buildChains(input: FlowInput, dateKeys: string[], now: Date): string[][
  * so this stays raw-block-based even once the pairwise matrix moves to the backend (see
  * flowMatrixFromTransitionRows / buildFlowResult below).
  */
+const ROUTINE_MIN_STEPS = 3;
+const ROUTINE_MAX_STEPS = 5;
+
 const routinesFromChains = (chains: string[][]): { steps: string[]; count: number }[] => {
-  const triples = new Map<string, number>();
+  const seen = new Map<string, number>();
   for (const chain of chains) {
-    for (let k = 2; k < chain.length; k++) {
-      const t = `${chain[k - 2]}|${chain[k - 1]}|${chain[k]}`;
-      triples.set(t, (triples.get(t) ?? 0) + 1);
+    for (let len = ROUTINE_MIN_STEPS; len <= ROUTINE_MAX_STEPS; len++) {
+      for (let k = len - 1; k < chain.length; k++) {
+        const t = chain.slice(k - len + 1, k + 1).join('|');
+        seen.set(t, (seen.get(t) ?? 0) + 1);
+      }
     }
   }
-  return [...triples.entries()]
-    .filter(([, c]) => c >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([k, count]) => ({ steps: k.split('|'), count }));
+  const repeated = [...seen.entries()].filter(([, c]) => c >= 2).map(([k, count]) => ({ steps: k.split('|'), count }));
+  // A routine inside a longer one seen just as often is the same habit, not a second one ("A→B→C" is implied by
+  // "A→B→C→D" seen 4x). It stays when it also happens on its own, i.e. more often than the longer sequence.
+  const contains = (long: string[], short: string[]) => {
+    for (let i = 0; i + short.length <= long.length; i++) if (short.every((s, j) => long[i + j] === s)) return true;
+    return false;
+  };
+  return repeated
+    .filter((r) => !repeated.some((o) => o.steps.length > r.steps.length && o.count >= r.count && contains(o.steps, r.steps)))
+    .sort((a, b) => b.count - a.count || b.steps.length - a.steps.length)
+    .slice(0, 5);
+};
+
+/** One run of a single activity within a day, as block indexes (inclusive). */
+export interface DayFlow { activityId: string; start: number; end: number }
+
+const DAY_FLOW_TOLERANCE = 2; // a lone untracked 10-minute block inside a stretch doesn't end it; 20+ minutes does
+
+/**
+ * The day's flows: each is an unbroken stretch of ONE activity. A change of activity ends a flow (the next one starts
+ * right away), and so does an untracked gap of DAY_FLOW_TOLERANCE blocks or more. Sleep and untracked time are not
+ * flows. `elapsedBlocks` cuts a day that is still in progress.
+ */
+export const buildDayFlows = (
+  blocks: { block_index: number; activity_id: string | null }[],
+  sleepIds: Set<string>,
+  elapsedBlocks = 144
+): DayFlow[] => {
+  const day: (string | null)[] = new Array(144).fill(null);
+  for (const b of blocks) if (b.activity_id && !sleepIds.has(b.activity_id)) day[b.block_index] = b.activity_id;
+  const flows: DayFlow[] = [];
+  for (let i = 0; i < Math.min(elapsedBlocks, 144); i++) {
+    const a = day[i];
+    if (!a) continue;
+    const last = flows[flows.length - 1];
+    if (last && last.activityId === a && i - last.end - 1 < DAY_FLOW_TOLERANCE) { last.end = i; continue; }
+    flows.push({ activityId: a, start: i, end: i });
+  }
+  return flows;
 };
 
 export const routinesFromBlocks = (

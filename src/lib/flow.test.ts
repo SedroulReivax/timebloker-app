@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeFlow, buildFlowResult, flowMatrixFromTransitionRows, routinesFromBlocks, FLOW_OTHER } from './flow';
+import { analyzeFlow, buildDayFlows, buildFlowResult, flowMatrixFromTransitionRows, routinesFromBlocks, FLOW_OTHER } from './flow';
 import { blindSpots, loggingGaps } from './insights';
 import type { RangeBlock } from './blockRange';
 
@@ -117,5 +117,49 @@ describe('loggingGaps: whole untracked days', () => {
     expect(g.notTrackedDays).toBe(1);
     expect(g.overallPct).toBe(0);
     expect(g.cells[2][10].untrackedPct).toBeNull(); // Tuesday: only the untracked day, so no observations
+  });
+});
+
+describe('routines of three to five steps and day flows', () => {
+  const mk = (seq: string[], day = '2026-07-01') =>
+    seq.map((a, i) => ({ date_key: day, block_index: i * 6, activity_id: a, user_id: 'u' }));
+  const acts = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, name: id }));
+  const run = (blocks: ReturnType<typeof mk>) => {
+    // each activity is 2 blocks (the first block plus the next 5 empty ones would break the chain), so fill 6 blocks each
+    const full = blocks.flatMap((b) => Array.from({ length: 6 }, (_, k) => ({ ...b, block_index: b.block_index + k })));
+    return full;
+  };
+
+  it('finds a five-step routine seen twice and drops the shorter ones it contains', () => {
+    const blocks = [...run(mk(['a', 'b', 'c', 'd', 'e'], '2026-07-01')), ...run(mk(['a', 'b', 'c', 'd', 'e'], '2026-07-02'))];
+    const r = routinesFromBlocks({ blocks: blocks as any, activities: acts, sleepIds: new Set() }, ['2026-07-01', '2026-07-02'], { now: new Date('2026-08-01T12:00:00') });
+    expect(r).toEqual([{ steps: ['a', 'b', 'c', 'd', 'e'], count: 2 }]);
+  });
+
+  it('keeps a shorter routine that also happens on its own', () => {
+    const blocks = [
+      ...run(mk(['a', 'b', 'c', 'd'], '2026-07-01')),
+      ...run(mk(['a', 'b', 'c', 'd'], '2026-07-02')),
+      ...run(mk(['a', 'b', 'c', 'e'], '2026-07-03')),
+    ];
+    const r = routinesFromBlocks({ blocks: blocks as any, activities: acts, sleepIds: new Set() }, ['2026-07-01', '2026-07-02', '2026-07-03'], { now: new Date('2026-08-01T12:00:00') });
+    expect(r[0]).toEqual({ steps: ['a', 'b', 'c'], count: 3 });
+    expect(r).toContainEqual({ steps: ['a', 'b', 'c', 'd'], count: 2 });
+  });
+
+  it('buildDayFlows breaks on a change of activity and on a 20 minute gap, but not on a single missed block', () => {
+    const blocks = [0, 1, 3, 4].map((i) => ({ block_index: i, activity_id: 'a' }))
+      .concat([5, 6].map((i) => ({ block_index: i, activity_id: 'b' })))
+      .concat([9, 10].map((i) => ({ block_index: i, activity_id: 'b' })));
+    expect(buildDayFlows(blocks, new Set())).toEqual([
+      { activityId: 'a', start: 0, end: 4 },
+      { activityId: 'b', start: 5, end: 6 },
+      { activityId: 'b', start: 9, end: 10 },
+    ]);
+  });
+
+  it('buildDayFlows ignores sleep and cuts at the elapsed block', () => {
+    const blocks = [0, 1, 2, 3].map((i) => ({ block_index: i, activity_id: i < 2 ? 'z' : 'a' }));
+    expect(buildDayFlows(blocks, new Set(['z']), 3)).toEqual([{ activityId: 'a', start: 2, end: 2 }]);
   });
 });
