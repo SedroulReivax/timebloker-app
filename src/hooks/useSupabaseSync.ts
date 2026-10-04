@@ -63,6 +63,8 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
   blocksRef.current = blocks;
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
+  const taskBlocksRef = useRef(taskBlocks);
+  taskBlocksRef.current = taskBlocks;
 
   // ─── Save status helpers ───────────────────────────────────────────────────
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -372,20 +374,27 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
   };
 
   // ─── Block mutations ───────────────────────────────────────────────────────
-  const assignBlocks = async (blockIndices: number[], activityId: string | null, taskId: string | null = null) => {
+  /** Writes blocks on any date, not just the one on screen (a running focus session always writes to today).
+   *  The grid's local copy is only touched when that date is the one shown. */
+  const assignBlocksOn = async (forDate: string, blockIndices: number[], activityId: string | null, taskId: string | null = null) => {
+    if (!userId || blockIndices.length === 0) return;
     // A task link only makes sense together with an activity
     const linkedTaskId = activityId ? taskId : null;
-    // Snapshot for rollback
-    const prevBlocks = blocks;
-    const prevTaskBlocks = taskBlocks;
+    const touched = new Set(blockIndices);
+    const onScreen = forDate === dateKeyRef.current;
+    // Snapshot of just the touched rows, so a rollback can't undo other edits made meanwhile
+    const prevRows = new Map(onScreen ? blocksRef.current.filter((b) => touched.has(b.block_index)).map((b) => [b.block_index, b]) : []);
+    const prevLinks = taskBlocksRef.current.filter((r) => r.date_key === forDate && touched.has(r.block_index));
     // Optimistic update
-    setBlocks((prev) =>
-      prev.map((b) => (blockIndices.includes(b.block_index) ? { ...b, activity_id: activityId, task_id: linkedTaskId } : b))
-    );
+    if (onScreen) {
+      setBlocks((prev) =>
+        prev.map((b) => (touched.has(b.block_index) ? { ...b, activity_id: activityId, task_id: linkedTaskId } : b))
+      );
+    }
     setTaskBlocks((prev) => {
-      const kept = prev.filter((r) => !(r.date_key === dateKey && blockIndices.includes(r.block_index)));
+      const kept = prev.filter((r) => !(r.date_key === forDate && touched.has(r.block_index)));
       return linkedTaskId
-        ? [...kept, ...blockIndices.map((idx) => ({ date_key: dateKey, block_index: idx, task_id: linkedTaskId }))]
+        ? [...kept, ...blockIndices.map((idx) => ({ date_key: forDate, block_index: idx, task_id: linkedTaskId }))]
         : kept;
     });
     setSaving();
@@ -393,7 +402,7 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
     try {
       const updates = blockIndices.map((idx) => ({
         user_id: userId,
-        date_key: dateKey,
+        date_key: forDate,
         block_index: idx,
         activity_id: activityId,
         task_id: linkedTaskId,
@@ -404,14 +413,19 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
       if (error) throw error;
       invalidateBlockRangeCache(); // cached ranges may hold pre-edit rows for this date
       setSaved();
-      markDateDirty(userId, dateKey, 'block_assign');
+      markDateDirty(userId, forDate, 'block_assign');
     } catch (e) {
       console.error('assignBlocks error:', e);
-      setBlocks(prevBlocks);
-      setTaskBlocks(prevTaskBlocks);
+      if (onScreen && dateKeyRef.current === forDate) {
+        setBlocks((prev) => prev.map((b) => (prevRows.has(b.block_index) ? prevRows.get(b.block_index) : b)));
+      }
+      setTaskBlocks((prev) => [...prev.filter((r) => !(r.date_key === forDate && touched.has(r.block_index))), ...prevLinks]);
       setSaveError();
     }
   };
+
+  const assignBlocks = (blockIndices: number[], activityId: string | null, taskId: string | null = null) =>
+    assignBlocksOn(dateKey, blockIndices, activityId, taskId);
 
   // ─── Copy a day's time pattern (fills empty blocks only; never overwrites, never copies task links) ───
   const previewCopyFromDate = async (sourceDateKey: string): Promise<CopyPlan | null> => {
@@ -645,53 +659,53 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
     markDatesDirty(userId, touchedDates, 'task_deleted');
   };
 
-  const logFocusSession = async (taskId: string, elapsedMinutes: number, timerType: 'pomodoro' | 'stopwatch' = 'pomodoro') => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
+  /**
+   * Records one finished focus session: on a task (also bumps its pomodoro count) or on an activity alone
+   * (task_id stays null). Blocks are not written here any more: a running session fills them live as it covers
+   * them (useFocusSession), so this only logs the time.
+   */
+  const logFocusSession = async (s: {
+    taskId: string | null;
+    activityId: string | null;
+    minutes: number;
+    timerType: 'pomodoro' | 'stopwatch';
+    startedAt: Date;
+    endedAt: Date;
+  }) => {
+    if (!userId) return;
+    const task = s.taskId ? tasksRef.current.find((t) => t.id === s.taskId) : undefined;
+    if (s.taskId && !task) return;
+    const minutes = Math.max(0, Math.round(s.minutes));
 
-    const pomosToAdd = Math.max(1, Math.round(elapsedMinutes / 25));
-    const newCount = (task.completed_pomodoros || 0) + pomosToAdd;
-
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, completed_pomodoros: newCount } : t)));
-    setSaving();
-    const { error } = await supabase.from('tasks').update({ completed_pomodoros: newCount }).eq('id', taskId);
-    if (error) { console.error('logFocusSession error:', error); setSaveError(); } else setSaved();
+    if (task) {
+      // A pomodoro stopped early is logged as time but doesn't count as a pomodoro
+      const pomosToAdd = s.timerType === 'pomodoro' ? (minutes >= 25 ? 1 : 0) : Math.max(1, Math.round(minutes / 25));
+      if (pomosToAdd > 0) {
+        const newCount = (task.completed_pomodoros || 0) + pomosToAdd;
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed_pomodoros: newCount } : t)));
+        setSaving();
+        const { error } = await supabase.from('tasks').update({ completed_pomodoros: newCount }).eq('id', task.id);
+        if (error) { console.error('logFocusSession error:', error); setSaveError(); } else setSaved();
+      }
+    }
 
     // Persist the real session so focused time survives reloads
-    const endedAt = new Date();
-    const startedAt = new Date(endedAt.getTime() - elapsedMinutes * 60000);
     const { data: session, error: sessionError } = await supabase
       .from('task_focus_sessions')
       .insert({
         user_id: userId as string,
-        task_id: taskId,
-        activity_id: task.activity_id ?? null,
-        timer_type: timerType,
-        started_at: startedAt.toISOString(),
-        ended_at: endedAt.toISOString(),
-        duration_minutes: Math.max(0, Math.round(elapsedMinutes)),
+        task_id: task?.id ?? null,
+        activity_id: s.activityId ?? task?.activity_id ?? null,
+        timer_type: s.timerType,
+        started_at: s.startedAt.toISOString(),
+        ended_at: s.endedAt.toISOString(),
+        duration_minutes: minutes,
       })
       .select()
       .single();
     if (sessionError) { console.error('focus session insert error:', sessionError); setSaveError(); }
     else if (session) setFocusSessions((prev) => [...prev, session]);
-    markDateDirty(userId, format(startedAt, 'yyyy-MM-dd'), 'focus_session_logged');
-
-    if (task.activity_id) {
-      const now = new Date();
-      if (format(now, 'yyyy-MM-dd') === dateKey) {
-        const currentBlockIndex = Math.floor((now.getHours() * 60 + now.getMinutes()) / 10);
-        const blocksToFill = Math.ceil(elapsedMinutes / 10);
-        const indices: number[] = [];
-        for (let i = 0; i < blocksToFill; i++) {
-          const idx = currentBlockIndex - i;
-          if (idx >= 0) indices.push(idx);
-        }
-        if (indices.length > 0) {
-          assignBlocks(indices, task.activity_id, task.id);
-        }
-      }
-    }
+    markDateDirty(userId, format(s.startedAt, 'yyyy-MM-dd'), 'focus_session_logged');
   };
 
   // ─── Sleep mutations ───────────────────────────────────────────────────────
@@ -881,6 +895,7 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
 
     // Blocks
     assignBlocks,
+    assignBlocksOn,
     previewCopyFromDate,
     copyBlocksFromDate,
 

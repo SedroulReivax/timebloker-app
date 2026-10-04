@@ -9,6 +9,7 @@ import { formatMinutes, summarizeTaskTime } from '../lib/taskTime';
 import { isDateOnlyDeadline } from '../lib/deadlines';
 import { groupTasks, countActiveTasks } from '../lib/taskCounts';
 import { useNerdMode } from './ui/detail';
+import { useOptionalFocusSession } from '../hooks/useFocusSession';
 
 const isDateOnly = (deadline: string): boolean => isDateOnlyDeadline(deadline);
 
@@ -82,6 +83,7 @@ export const TaskList: React.FC<TaskListProps> = ({
   onSelectTask,
   onNavigateToFocus,
 }) => {
+  const focusSession = useOptionalFocusSession();
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskDeadline, setNewTaskDeadline] = useState('');
@@ -233,7 +235,12 @@ export const TaskList: React.FC<TaskListProps> = ({
         <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 transition-all flex-shrink-0">
           {isSelected && !task.completed && (
             <button
-              onClick={e => { e.stopPropagation(); onNavigateToFocus(); }}
+              onClick={e => {
+                e.stopPropagation();
+                // a running session keeps going; otherwise this task becomes what Focus times
+                if (focusSession && !focusSession.isActive) focusSession.setTarget({ kind: 'task', id: task.id });
+                onNavigateToFocus();
+              }}
               className="px-3 py-1.5 text-[11px] font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded flex items-center gap-1"
               title="Focus on task"
             >

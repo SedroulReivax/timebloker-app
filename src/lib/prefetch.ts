@@ -3,8 +3,8 @@
  * instant while the first load stays small. Each import resolves to the same chunk the page's lazy() uses.
  */
 const loaders: Record<string, () => Promise<unknown>> = {
-  tasks: () => import('../components/FocusMode'),
-  prioritize: () => import('../components/EisenhowerMatrix'),
+  focus: () => import('../components/FocusMode'),
+  matrix: () => import('../components/EisenhowerMatrix'),
   analysis: () => import('../components/AnalysisHub'),
   activities: () => import('../components/ActivitiesManager'),
   sleep: () => import('../components/SleepHub'),

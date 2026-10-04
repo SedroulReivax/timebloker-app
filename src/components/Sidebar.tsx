@@ -4,7 +4,7 @@ import {
   Check,
   Flame,
   LayoutGrid,
-  Grid2x2,
+  Timer,
   BarChart2,
   ChevronsLeft,
   ChevronsRight,
@@ -41,7 +41,7 @@ interface Habit {
 export type SidebarView =
   | 'today'
   | 'tasks'
-  | 'prioritize'
+  | 'focus'
   | 'analysis'
   | 'activities'
   | 'sleep'
@@ -58,7 +58,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { view: 'today', label: 'Today', icon: <LayoutGrid size={18} /> },
   { view: 'tasks', label: 'Tasks', icon: <ListTodo size={18} /> },
-  { view: 'prioritize', label: 'Prioritize', icon: <Grid2x2 size={18} /> },
+  { view: 'focus', label: 'Focus', icon: <Timer size={18} /> },
   { view: 'analysis', label: 'Analysis', icon: <BarChart2 size={18} /> },
   { view: 'activities', label: 'Activities', icon: <Palette size={18} /> },
 ];

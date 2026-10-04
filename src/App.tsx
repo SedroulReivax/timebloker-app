@@ -16,6 +16,8 @@ const GoalsPage = lazy(() => import('./components/GoalsPage').then(m => ({ defau
 const ExportPage = lazy(() => import('./components/ExportPage').then(m => ({ default: m.ExportPage })));
 const SettingsPage = lazy(() => import('./components/SettingsPage').then(m => ({ default: m.SettingsPage })));
 import { useSupabaseSync } from './hooks/useSupabaseSync';
+import { FocusSessionProvider } from './hooks/useFocusSession';
+import { FocusPill } from './components/FocusPill';
 import { Auth } from './components/Auth';
 import { supabase } from './supabaseClient';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
@@ -29,14 +31,18 @@ import { format } from 'date-fns';
 import {
   LayoutGrid, ListTodo, BarChart2, LogOut, Sun, Moon, Zap, TreePine,
   CalendarDays, Grid2x2, Palette,
-  CheckCircle2, AlertCircle, Loader2, Target, Settings, BedDouble, Microscope, Menu, Download, ChevronDown
+  CheckCircle2, AlertCircle, Loader2, Target, Settings, BedDouble, Microscope, Menu, Download, ChevronDown, Timer
 } from 'lucide-react';
 import { Sheet } from './components/ui/sheet';
 
 /** bottom-nav tab on phones and tablets; everything outside the four main pages lives under More */
-type MobileTab = 'tracker' | 'tasks' | 'prioritize' | 'analysis' | 'more';
+type MobileTab = 'tracker' | 'tasks' | 'focus' | 'analysis' | 'more';
 const mobileTabOf = (view: SidebarView): MobileTab =>
-  view === 'today' ? 'tracker' : view === 'tasks' ? 'tasks' : view === 'prioritize' ? 'prioritize' : view === 'analysis' ? 'analysis' : 'more';
+  view === 'today' ? 'tracker' : view === 'tasks' ? 'tasks' : view === 'focus' ? 'focus' : view === 'analysis' ? 'analysis' : 'more';
+/** Tasks shows the list or the Eisenhower matrix; the choice is remembered on this device */
+type TaskSubView = 'list' | 'matrix';
+const TASK_VIEW_KEY = 'blockday.taskView';
+const readTaskView = (): TaskSubView => { try { return localStorage.getItem(TASK_VIEW_KEY) === 'matrix' ? 'matrix' : 'list'; } catch { return 'list'; } };
 /** 4:3 and small 16:10 screens start with the slim sidebar so the page gets the room */
 const startCollapsed = () => { try { return window.matchMedia('(min-width: 1024px) and (max-width: 1279px)').matches; } catch { return false; } };
 type ThemeName = 'theme-stark-white' | 'theme-stark-black' | 'theme-solarized-light' | 'theme-solarized-dark';
@@ -111,7 +117,7 @@ function TrackerApp({ session }: { session: any }) {
     activities, habits, blocks, tasks, habitLogs, sleepLogs, goals, userSettings, saveStatus,
     assignBlocks, previewCopyFromDate, copyBlocksFromDate, toggleDailyHabit, logEventHabit, deleteHabitLog, updateHabitLogNote, toggleTask, addTask, updateTask,
     addActivity, addHabit, deleteHabit, deleteTask, updateActivity, archiveActivity,
-    logFocusSession, focusSessions, taskBlocks, reviews, saveReview, addSleepLog, updateSleepLog: _updateSleepLog, deleteSleepLog,
+    logFocusSession, focusSessions, taskBlocks, assignBlocksOn, reviews, saveReview, addSleepLog, updateSleepLog: _updateSleepLog, deleteSleepLog,
     addGoal, updateGoal, deleteGoal, completeGoal, abandonGoal,
     updateUserSettings,
   } = useSupabaseSync(session, selectedDate);
@@ -123,7 +129,11 @@ function TrackerApp({ session }: { session: any }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [dayPanelOpen, setDayPanelOpen] = useState(false);
   const [trackerSubView, setTrackerSubView] = useState<'grid' | 'week' | 'month'>('grid');
-  const [taskSubView, setTaskSubView] = useState<'list' | 'focus'>('list');
+  const [taskSubView, setTaskSubViewState] = useState<TaskSubView>(readTaskView);
+  const setTaskSubView = (v: TaskSubView) => {
+    setTaskSubViewState(v);
+    try { localStorage.setItem(TASK_VIEW_KEY, v); } catch { /* per-device convenience only */ }
+  };
   const [analysisTab, setAnalysisTab] = useState<AnalysisTab>('day');
   const [clockOpen, setClockOpen] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -179,7 +189,7 @@ function TrackerApp({ session }: { session: any }) {
   const viewTitles: Record<SidebarView, string> = {
     today: 'Tracker',
     tasks: 'Tasks',
-    prioritize: 'Prioritize',
+    focus: 'Focus',
     analysis: 'Analysis',
     activities: 'Activities',
     sleep: 'Sleep',
@@ -249,15 +259,13 @@ function TrackerApp({ session }: { session: any }) {
         }
 
       case 'tasks':
-        return taskSubView === 'focus' ? (
-          <Suspense fallback={null}><FocusMode
+        return taskSubView === 'matrix' ? (
+          <EisenhowerMatrix
             tasks={tasks}
             activities={activities}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={handleSelectTask}
-            onPomodoroComplete={logFocusSession}
-            onBack={() => setTaskSubView('list')}
-          /></Suspense>
+            onUpdateTask={updateTask}
+            onToggleTask={(id, completed) => toggleTask(id, !completed)}
+          />
         ) : (
           <div className="flex-1 h-full overflow-y-auto bg-card">
             <TaskList
@@ -274,7 +282,7 @@ function TrackerApp({ session }: { session: any }) {
               focusSessions={focusSessions}
               selectedTaskId={selectedTaskId}
               onSelectTask={handleSelectTask}
-              onNavigateToFocus={() => setTaskSubView('focus')}
+              onNavigateToFocus={() => handleNavigate('focus')}
             />
           </div>
         );
@@ -289,15 +297,8 @@ function TrackerApp({ session }: { session: any }) {
           />
         );
 
-      case 'prioritize':
-        return (
-          <EisenhowerMatrix
-            tasks={tasks}
-            activities={activities}
-            onUpdateTask={updateTask}
-            onToggleTask={(id, completed) => toggleTask(id, !completed)}
-          />
-        );
+      case 'focus':
+        return <FocusMode tasks={tasks} activities={activities} focusSessions={focusSessions} />;
 
       case 'analysis':
         return (
@@ -392,6 +393,7 @@ function TrackerApp({ session }: { session: any }) {
   };
 
   return (
+    <FocusSessionProvider userId={session.user.id} tasks={tasks} activities={activities} assignBlocksOn={assignBlocksOn} logFocusSession={logFocusSession}>
     <div className="tracker-layout">
       {/* SIDEBAR */}
       <div className={`tracker-sidebar${sidebarCollapsed ? ' collapsed' : ''}`}>
@@ -474,6 +476,28 @@ function TrackerApp({ session }: { session: any }) {
                 </button>
               </div>
             )}
+            {activeView === 'tasks' && (
+              <div className="flex items-center gap-0.5 bg-muted p-0.5 rounded-lg border border-border sm:ml-4 flex-shrink-0" role="tablist" aria-label="Task view">
+                {([['list', 'List', <ListTodo size={13} key="i" />], ['matrix', 'Matrix', <Grid2x2 size={13} key="i" />]] as const).map(([v, label, icon]) => (
+                  <button
+                    key={v}
+                    role="tab"
+                    aria-selected={taskSubView === v}
+                    onClick={() => setTaskSubView(v)}
+                    onPointerEnter={v === 'matrix' ? () => prefetchView('matrix') : undefined}
+                    title={v === 'list' ? 'Task list' : 'Eisenhower matrix: urgent vs important'}
+                    aria-label={v === 'list' ? 'Task list' : 'Eisenhower matrix'}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                      taskSubView === v ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {icon}
+                    <span className="hidden md:inline">{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {activeView !== 'focus' && <FocusPill onOpen={() => handleNavigate('focus')} />}
             {activeView === 'today' && (
               <button
                 onClick={() => { setAnalysisTab('day'); handleNavigate('analysis'); }}
@@ -585,7 +609,7 @@ function TrackerApp({ session }: { session: any }) {
         {([
           ['tracker', 'today', 'Today', <LayoutGrid size={20} key="i" />],
           ['tasks', 'tasks', 'Tasks', <ListTodo size={20} key="i" />],
-          ['prioritize', 'prioritize', 'Priority', <Grid2x2 size={20} key="i" />],
+          ['focus', 'focus', 'Focus', <Timer size={20} key="i" />],
           ['analysis', 'analysis', 'Analysis', <BarChart2 size={20} key="i" />],
         ] as const).map(([tab, view, label, icon]) => (
           <button key={tab} className={`mobile-tab-btn${mobileTab === tab ? ' active' : ''}`} aria-current={mobileTab === tab ? 'page' : undefined} onClick={() => handleNavigate(view)}>
@@ -679,5 +703,6 @@ function TrackerApp({ session }: { session: any }) {
         );
       })()}
     </div>
+    </FocusSessionProvider>
   );
 }

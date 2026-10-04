@@ -27,6 +27,9 @@ import { FocusCurveCard } from './FocusCurveCard';
 import { NerdModeProvider } from './ui/detail';
 import { Page, SectionGrid, TileRow, pageClass } from './ui/page';
 import { Sidebar } from './Sidebar';
+import { FocusMode } from './FocusMode';
+import { FocusPill } from './FocusPill';
+import { FocusSessionProvider } from '../hooks/useFocusSession';
 import { analyzeFocus } from '../lib/focusModel';
 import type { Activity } from '../types';
 
@@ -436,7 +439,26 @@ describe('responsive building blocks', () => {
     const panel = html(<Sidebar {...props} panel />);
     expect(panel).toContain('Daily habits');
     expect(panel).toContain('Read');
-    expect(panel).not.toContain('Prioritize');
-    expect(html(<Sidebar {...props} />)).toContain('Prioritize');
+    expect(panel).not.toContain('Focus');
+    expect(html(<Sidebar {...props} />)).toContain('Focus');
+    expect(html(<Sidebar {...props} />)).not.toContain('Prioritize');
+  });
+});
+
+describe('Focus page', () => {
+  it('renders the timer, the task/activity switch and the picker without a session', () => {
+    const tasks = [{ id: 't1', title: 'Write report', completed: false, activity_id: workActivity.id }];
+    const out = html(
+      <FocusSessionProvider userId="u" tasks={tasks} activities={[workActivity]} assignBlocksOn={NOOP} logFocusSession={NOOP}>
+        <FocusMode tasks={tasks} activities={[workActivity]} focusSessions={[]} />
+        <FocusPill onOpen={NOOP} />
+      </FocusSessionProvider>
+    );
+    expect(out).toContain('Pomodoro');
+    expect(out).toContain('Stopwatch');
+    expect(out).toContain('25:00');
+    expect(out).toContain('Activity');
+    expect(out).toContain('Select a task to focus on');
+    expect(out).not.toContain('Open Focus'); // the top-bar pill only shows while a session is in progress
   });
 });
