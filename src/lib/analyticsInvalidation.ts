@@ -102,6 +102,14 @@ export function drainOnStartup(userId: string | undefined) {
   void runDrain(userId);
 }
 
+/** A Realtime event showed raw data changed on another device. That device queues and drains its own
+ *  dirty dates, but this device's analytics caches don't know, so run the same debounced drain here:
+ *  it picks up anything still queued (process_dirty_analytics skips rows another drain has locked) and
+ *  clears the range caches when done, so open analysis screens refetch instead of waiting out the TTL. */
+export function drainAfterRemoteChange(userId: string | undefined) {
+  scheduleDrain(userId);
+}
+
 // ─── Mark-dirty API ─────────────────────────────────────────────────────────────
 
 /** Mark one date's derived analytics dirty (block edits, task/habit/sleep/session changes). */

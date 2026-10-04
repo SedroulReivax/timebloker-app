@@ -6,13 +6,34 @@ import { fetchAllRows } from '../lib/paging';
 import { planCopy, type CopyPlan } from '../lib/copyDay';
 import { invalidateBlockRangeCache } from './useBlockRange';
 import { buildNextOccurrence } from '../lib/recurrence';
-import { markDateDirty, markDatesDirty, markActivityDirty, markGoalDirty, markHabitDirty, drainOnStartup } from '../lib/analyticsInvalidation';
+import { markDateDirty, markDatesDirty, markActivityDirty, markGoalDirty, markHabitDirty, drainOnStartup, drainAfterRemoteChange } from '../lib/analyticsInvalidation';
 import type { Database } from '../database.types';
 import type { DailyStats, Goal, HabitLog, Review, SleepLog, TaskBlockRef, TaskFocusSession, UserSettings } from '../types';
 
 type UserSettingsInsert = Database['public']['Tables']['user_settings']['Insert'];
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+// Local first-paint cache. Keys share the blockday_data_<user>_ prefix that accountData.ts clears on wipe.
+const userCacheKey = (userId: string) => `blockday_data_${userId}_user`;
+const dayCacheKey = (userId: string, dateKey: string) => `blockday_data_${userId}_${dateKey}`;
+
+function readCache(key: string) {
+  try {
+    const cached = localStorage.getItem(key);
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn('local cache write skipped:', e); // quota full or storage blocked; the fetch result is already in state
+  }
+}
 
 export function useSupabaseSync(session: any, selectedDate: Date) {
   const [loading, setLoading] = useState(true);
@@ -34,14 +55,31 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
   const dateKey = format(selectedDate, 'yyyy-MM-dd');
   const userId = session?.user?.id;
 
+  // Realtime handlers and the visibility listener live for the whole session, so they read the
+  // current date through a ref instead of resubscribing on every date change.
+  const dateKeyRef = useRef(dateKey);
+  dateKeyRef.current = dateKey;
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
   // ─── Save status helpers ───────────────────────────────────────────────────
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipNextRealtimeSync = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // While our own writes are in flight their Realtime echoes can arrive between two optimistic
+  // updates and briefly undo the newer one. Events that arrive in this window are queued instead of
+  // dropped, then applied in commit order once writes go quiet, so remote edits made in the window
+  // still land and the final state matches the database.
+  const selfWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuedRealtime = useRef<(() => void)[]>([]);
 
   const setSelfMutation = () => {
-    if (skipNextRealtimeSync.current) clearTimeout(skipNextRealtimeSync.current);
-    skipNextRealtimeSync.current = setTimeout(() => {
-      skipNextRealtimeSync.current = null;
+    if (selfWriteTimer.current) clearTimeout(selfWriteTimer.current);
+    selfWriteTimer.current = setTimeout(() => {
+      selfWriteTimer.current = null;
+      const queued = queuedRealtime.current;
+      queuedRealtime.current = [];
+      queued.forEach((apply) => apply());
     }, 2000);
   };
 
@@ -76,114 +114,227 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
 
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    if (skipNextRealtimeSync.current) clearTimeout(skipNextRealtimeSync.current);
+    if (selfWriteTimer.current) clearTimeout(selfWriteTimer.current);
   }, []);
 
   // ─── Data loading ──────────────────────────────────────────────────────────
-  const loadData = useCallback(async (isRealtimeEvent = false) => {
-    if (!userId) return;
-    if (isRealtimeEvent && skipNextRealtimeSync.current) return;
+  // Two loaders instead of one: everything user-wide (all tasks, habit logs, focus sessions, ...) is
+  // fetched once per session and then kept current by our own mutations, Realtime (tasks, blocks) and
+  // a refresh when the tab comes back into view. Only the selected day's grid is refetched when the
+  // date changes. localStorage keys keep the blockday_data_<user>_ prefix so the account wipe in
+  // accountData.ts still clears them.
+  const userDataPainted = useRef(false);
 
-    const cacheKey = `blockday_data_${userId}_${dateKey}`;
-    if (!isRealtimeEvent && loading) {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (parsed.activities) setActivities(parsed.activities);
-          if (parsed.habits) setHabits(parsed.habits);
-          if (parsed.habitLogs) setHabitLogs(parsed.habitLogs);
-          if (parsed.tasks) setTasks(parsed.tasks);
-          if (parsed.blocks) setBlocks(parsed.blocks);
-          if (parsed.dailyStats) setDailyStats(parsed.dailyStats);
-          if (parsed.sleepLogs) setSleepLogs(parsed.sleepLogs);
-          if (parsed.goals) setGoals(parsed.goals);
-          if (parsed.userSettings) setUserSettings(parsed.userSettings);
-        } catch (e) {}
+  const loadUserData = useCallback(async () => {
+    if (!userId) return;
+
+    if (!userDataPainted.current) {
+      userDataPainted.current = true;
+      const parsed = readCache(userCacheKey(userId));
+      if (parsed) {
+        if (parsed.activities) setActivities(parsed.activities);
+        if (parsed.habits) setHabits(parsed.habits);
+        if (parsed.habitLogs) setHabitLogs(parsed.habitLogs);
+        if (parsed.tasks) setTasks(parsed.tasks);
+        if (parsed.sleepLogs) setSleepLogs(parsed.sleepLogs);
+        if (parsed.goals) setGoals(parsed.goals);
+        if (parsed.userSettings) setUserSettings(parsed.userSettings);
       }
     }
 
+    const [
+      { data: actData },
+      { data: habData },
+      { data: logData },
+      { data: taskData },
+      { data: sleepData },
+      { data: goalsData },
+      { data: settingsData },
+      { data: reviewData },
+      { data: sessionData },
+      { data: taskBlockData },
+    ] = await Promise.all([
+      supabase.from('activities').select('*').eq('user_id', userId).order('created_at'),
+      supabase.from('habits').select('*').eq('user_id', userId).order('created_at'),
+      fetchAllRows((from, to) => supabase.from('habit_logs').select('id, user_id, habit_id, date_key, logged_at, notes').eq('user_id', userId).order('logged_at').order('id').range(from, to)),
+      fetchAllRows((from, to) => supabase.from('tasks').select('*').eq('user_id', userId).order('created_at').order('id').range(from, to)),
+      supabase.from('sleep_logs').select('*').eq('user_id', userId).order('date_key', { ascending: false }).limit(60),
+      supabase.from('goals').select('*').eq('user_id', userId).order('created_at'),
+      supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('reviews').select('*').eq('user_id', userId),
+      fetchAllRows((from, to) => supabase.from('task_focus_sessions').select('*').eq('user_id', userId).order('started_at').order('id').range(from, to)),
+      fetchAllRows((from, to) => supabase.from('time_blocks').select('date_key, block_index, task_id').eq('user_id', userId).not('task_id', 'is', null).order('date_key').order('block_index').range(from, to)),
+    ]);
+
+    if (actData) setActivities(actData);
+    if (habData) setHabits(habData);
+    if (logData) setHabitLogs(logData);
+    if (taskData) setTasks(taskData);
+    if (sleepData) setSleepLogs(sleepData);
+    if (goalsData) setGoals(goalsData);
+    if (settingsData) setUserSettings(settingsData);
+    if (sessionData) setFocusSessions(sessionData);
+    if (reviewData) setReviews(reviewData);
+    if (taskBlockData) setTaskBlocks(taskBlockData as TaskBlockRef[]);
+
+    writeCache(userCacheKey(userId), {
+      activities: actData, habits: habData, habitLogs: logData, tasks: taskData,
+      sleepLogs: sleepData, goals: goalsData, userSettings: settingsData,
+    });
+  }, [userId]);
+
+  const loadDayData = useCallback(async () => {
+    if (!userId) return;
+    const forDate = dateKey;
+
+    // Paint the day from cache first so date navigation is instant (old combined-format entries
+    // also carry blocks/dailyStats, so they still work here and are overwritten with day-only data).
+    const parsed = readCache(dayCacheKey(userId, forDate));
+    if (parsed?.blocks) setBlocks(parsed.blocks);
+
+    const [{ data: blockData }, { data: statsData }] = await Promise.all([
+      supabase.from('time_blocks').select('id, user_id, date_key, block_index, activity_id, task_id, notes').eq('user_id', userId).eq('date_key', forDate),
+      supabase.from('daily_stats').select('*').eq('user_id', userId).eq('date_key', forDate).maybeSingle(),
+    ]);
+
+    if (dateKeyRef.current !== forDate) return; // the user moved to another date while this was in flight
+
+    // Always 144 blocks
+    const fullBlocks = Array.from({ length: 144 }, (_, i) => {
+      const existing = blockData?.find((b: any) => b.block_index === i);
+      return existing || { block_index: i, activity_id: null, date_key: forDate, user_id: userId };
+    });
+    setBlocks(fullBlocks);
+    setDailyStats(statsData ?? null);
+
+    writeCache(dayCacheKey(userId, forDate), { blocks: fullBlocks, dailyStats: statsData });
+  }, [userId, dateKey]);
+
+  /** Full reload (user-wide data plus the selected day). Used to roll back after a failed write and
+   *  to catch up after the tab was hidden or the Realtime connection dropped. */
+  const loadData = useCallback(async () => {
     setLoading(true);
-
     try {
-      const [
-        { data: actData },
-        { data: habData },
-        { data: logData },
-        { data: taskData },
-        { data: blockData },
-        { data: statsData },
-        { data: sleepData },
-        { data: goalsData },
-        { data: settingsData },
-        { data: reviewData },
-        { data: sessionData },
-        { data: taskBlockData },
-      ] = await Promise.all([
-        supabase.from('activities').select('*').eq('user_id', userId).order('created_at'),
-        supabase.from('habits').select('*').eq('user_id', userId).order('created_at'),
-        fetchAllRows((from, to) => supabase.from('habit_logs').select('id, user_id, habit_id, date_key, logged_at, notes').eq('user_id', userId).order('logged_at').order('id').range(from, to)),
-        fetchAllRows((from, to) => supabase.from('tasks').select('*').eq('user_id', userId).order('created_at').order('id').range(from, to)),
-        supabase.from('time_blocks').select('id, user_id, date_key, block_index, activity_id, task_id, notes').eq('user_id', userId).eq('date_key', dateKey),
-        supabase.from('daily_stats').select('*').eq('user_id', userId).eq('date_key', dateKey).maybeSingle(),
-        supabase.from('sleep_logs').select('*').eq('user_id', userId).order('date_key', { ascending: false }).limit(60),
-        supabase.from('goals').select('*').eq('user_id', userId).order('created_at'),
-        supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
-        supabase.from('reviews').select('*').eq('user_id', userId),
-        fetchAllRows((from, to) => supabase.from('task_focus_sessions').select('*').eq('user_id', userId).order('started_at').order('id').range(from, to)),
-        fetchAllRows((from, to) => supabase.from('time_blocks').select('date_key, block_index, task_id').eq('user_id', userId).not('task_id', 'is', null).order('date_key').order('block_index').range(from, to)),
-      ]);
-
-      if (actData) setActivities(actData);
-      if (habData) setHabits(habData);
-      if (logData) setHabitLogs(logData);
-      if (taskData) setTasks(taskData);
-      if (statsData) setDailyStats(statsData);
-      if (sleepData) setSleepLogs(sleepData);
-      if (goalsData) setGoals(goalsData);
-      if (settingsData) setUserSettings(settingsData);
-      if (sessionData) setFocusSessions(sessionData);
-      if (reviewData) setReviews(reviewData);
-      if (taskBlockData) setTaskBlocks(taskBlockData as TaskBlockRef[]);
-
-      // Always 144 blocks
-      const fullBlocks = Array.from({ length: 144 }, (_, i) => {
-        const existing = blockData?.find((b: any) => b.block_index === i);
-        return existing || { block_index: i, activity_id: null, date_key: dateKey, user_id: userId };
-      });
-      setBlocks(fullBlocks);
-
-      // Cache the loaded data
-      localStorage.setItem(`blockday_data_${userId}_${dateKey}`, JSON.stringify({
-        activities: actData, habits: habData, habitLogs: logData, tasks: taskData,
-        blocks: fullBlocks, dailyStats: statsData, sleepLogs: sleepData, goals: goalsData,
-        userSettings: settingsData
-      }));
+      await Promise.all([loadUserData(), loadDayData()]);
     } catch (e) {
       console.error('loadData error:', e);
     } finally {
       setLoading(false);
     }
-  }, [userId, dateKey]);
+  }, [loadUserData, loadDayData]);
 
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
+  // User-wide data: once per signed-in user, not on every date change.
   useEffect(() => {
-    loadData();
+    if (!userId) return;
+    setLoading(true);
+    loadUserData()
+      .catch((e) => console.error('loadUserData error:', e))
+      .finally(() => setLoading(false));
+    drainOnStartup(userId); // mop up any dirty dates left over from a prior session
+  }, [userId, loadUserData]);
 
+  // The selected day's grid: on every date change.
+  useEffect(() => {
+    if (!userId) return;
+    loadDayData().catch((e) => console.error('loadDayData error:', e));
+  }, [userId, loadDayData]);
+
+  // ─── Realtime: tasks and time blocks only ─────────────────────────────────
+  // Each event is applied to local state directly; nothing is refetched. Other tables (habits, sleep,
+  // goals, settings, ...) catch up through the visibility refresh below. INSERT/UPDATE are filtered
+  // to this user server-side. DELETE events can't be filtered (Supabase Realtime limitation) and,
+  // with RLS on, only carry the primary key, so those are subscribed separately and matched by id.
+  useEffect(() => {
     if (!userId) return;
 
-    drainOnStartup(userId); // mop up any dirty dates left over from a prior session
+    const applyRealtime = (apply: () => void) => {
+      if (selfWriteTimer.current) {
+        queuedRealtime.current.push(apply); // most likely our own echo; apply after our writes settle
+        return;
+      }
+      apply();
+      drainAfterRemoteChange(userId); // another device changed raw data: refresh analytics here too
+    };
+
+    const applyBlockRow = (row: any) => {
+      if (row.date_key === dateKeyRef.current) {
+        setBlocks((prev) => prev.map((b) => (b.block_index === row.block_index ? { ...b, ...row } : b)));
+      }
+      setTaskBlocks((prev) => {
+        const kept = prev.filter((r) => !(r.date_key === row.date_key && r.block_index === row.block_index));
+        return row.task_id ? [...kept, { date_key: row.date_key, block_index: row.block_index, task_id: row.task_id }] : kept;
+      });
+      invalidateBlockRangeCache();
+    };
+
+    const applyTaskRow = (row: any) => {
+      setTasks((prev) => (prev.some((t) => t.id === row.id) ? prev.map((t) => (t.id === row.id ? row : t)) : [...prev, row]));
+    };
+
+    // Block rows are only deleted in bulk (account wipe), and a delete event carries no date_key or
+    // block_index, so fall back to one debounced full reload.
+    let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const reloadSoon = () => {
+      if (reloadTimer) clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => { reloadTimer = null; void loadDataRef.current(); }, 1000);
+    };
+
+    const ownRows = `user_id=eq.${userId}`;
+    let subscribedBefore = false;
 
     const channel = supabase
-      .channel('public-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        loadData(true);
+      .channel(`sync-${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'time_blocks', filter: ownRows }, (p) => applyRealtime(() => applyBlockRow(p.new)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'time_blocks', filter: ownRows }, (p) => applyRealtime(() => applyBlockRow(p.new)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'time_blocks' }, (p) => {
+        // Unfiltered: only react to rows we actually hold (the visible day or a task-linked block)
+        const id = (p.old as { id?: string }).id;
+        if (id && blocksRef.current.some((b) => b.id === id)) applyRealtime(reloadSoon);
       })
-      .subscribe();
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks', filter: ownRows }, (p) => applyRealtime(() => applyTaskRow(p.new)))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks', filter: ownRows }, (p) => applyRealtime(() => applyTaskRow(p.new)))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (p) => {
+        // Unfiltered: ids that aren't ours simply match nothing
+        const id = (p.old as { id?: string }).id;
+        if (id && tasksRef.current.some((t) => t.id === id)) applyRealtime(() => setTasks((prev) => prev.filter((t) => t.id !== id)));
+      })
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return;
+        // A second SUBSCRIBED means the socket dropped and rejoined; events in the gap were missed.
+        if (subscribedBefore) void loadDataRef.current();
+        subscribedBefore = true;
+      });
 
     return () => {
+      if (reloadTimer) clearTimeout(reloadTimer);
       supabase.removeChannel(channel);
     };
-  }, [loadData, userId]);
+  }, [userId]);
+
+  // ─── Lazy catch-up for everything not on Realtime ─────────────────────────
+  // Coming back to the tab after a while refetches everything once, which picks up habit, sleep,
+  // goal and settings edits made on another device without streaming those tables.
+  useEffect(() => {
+    if (!userId) return;
+    const STALE_AFTER_HIDDEN_MS = 30_000;
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (hiddenAt && Date.now() - hiddenAt >= STALE_AFTER_HIDDEN_MS && !selfWriteTimer.current) {
+        void loadDataRef.current();
+        drainAfterRemoteChange(userId);
+      }
+      hiddenAt = 0;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [userId]);
 
   // ─── Activity mutations ────────────────────────────────────────────────────
   const addActivity = async (activity: any) => {
