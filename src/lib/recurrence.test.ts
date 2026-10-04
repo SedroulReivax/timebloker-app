@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextOccurrence } from './recurrence';
+import { buildNextOccurrence, nextOccurrence } from './recurrence';
 import { getDeadlineDateKey } from './deadlines';
 
 const key = (iso: string) => getDeadlineDateKey(iso);
@@ -50,5 +50,32 @@ describe('nextOccurrence (no deadline)', () => {
   it('starts from today as a date-only deadline', () => {
     const now = new Date(2026, 6, 26, 15, 0);
     expect(nextOccurrence(null, 'daily', null, now)).toBe('2026-07-27T00:00:00.000Z');
+  });
+});
+
+describe('buildNextOccurrence', () => {
+  const base = {
+    title: 'Water plants',
+    activity_id: 'a1',
+    deadline: '2026-07-26T00:00:00.000Z',
+    recurrence_type: 'daily' as const,
+    date_key: '2026-07-26',
+    estimated_minutes: 20,
+    estimated_pomodoros: 2,
+  };
+
+  it('returns null for tasks that do not repeat', () => {
+    expect(buildNextOccurrence({ ...base, recurrence_type: 'none' })).toBeNull();
+    expect(buildNextOccurrence({ ...base, recurrence_type: undefined })).toBeNull();
+  });
+
+  it('carries the estimate, resets pomodoro progress and files under the new deadline day', () => {
+    const next = buildNextOccurrence(base)!;
+    expect(next.deadline).toBe('2026-07-27T00:00:00.000Z');
+    expect(next.date_key).toBe('2026-07-27');
+    expect(next.estimated_minutes).toBe(20);
+    expect(next.estimated_pomodoros).toBe(2);
+    expect(next.completed_pomodoros).toBe(0);
+    expect(next.completed).toBe(false);
   });
 });

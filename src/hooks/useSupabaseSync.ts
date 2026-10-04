@@ -5,7 +5,7 @@ import { toISODeadline } from '../lib/deadlines';
 import { fetchAllRows } from '../lib/paging';
 import { planCopy, type CopyPlan } from '../lib/copyDay';
 import { invalidateBlockRangeCache } from './useBlockRange';
-import { nextOccurrence } from '../lib/recurrence';
+import { buildNextOccurrence } from '../lib/recurrence';
 import { markDateDirty, markDatesDirty, markActivityDirty, markGoalDirty, markHabitDirty, drainOnStartup } from '../lib/analyticsInvalidation';
 import type { Database } from '../database.types';
 import type { DailyStats, Goal, HabitLog, Review, SleepLog, TaskBlockRef, TaskFocusSession, UserSettings } from '../types';
@@ -441,20 +441,12 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
     if (task.completed_at) markDateDirty(userId, format(new Date(task.completed_at), 'yyyy-MM-dd'), 'task_completion_toggled');
 
     // Generate next occurrence for recurring tasks
-    if (completed && task.recurrence_type && task.recurrence_type !== 'none') {
-      const nextTask = {
-        title: task.title,
-        description: task.description,
-        deadline: nextOccurrence(task.deadline, task.recurrence_type, task.recurrence_rule),
-        recurrence_type: task.recurrence_type,
-        recurrence_rule: task.recurrence_rule,
-        date_key: task.date_key,
-        user_id: userId,
-        urgency: task.urgency,
-        importance: task.importance,
-        activity_id: task.activity_id,
-        completed: false,
-      };
+    const next = completed && !task.completed ? buildNextOccurrence(task) : null;
+    // Uncheck then re-check must not spawn a second copy of the same occurrence
+    const alreadySpawned = next && tasks.some((t) =>
+      !t.completed && t.title === next.title && t.recurrence_type === next.recurrence_type && t.deadline === next.deadline);
+    if (next && !alreadySpawned) {
+      const nextTask = { ...next, user_id: userId };
       const { data, error: nextError } = await supabase.from('tasks').insert(nextTask).select().single();
       if (nextError) { console.error('recurring task insert error:', nextError); setSaveError(); return; }
       if (data) setTasks((prev) => [...prev, data]);

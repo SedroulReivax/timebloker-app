@@ -1,5 +1,5 @@
 import { addDays, addMonths, addWeeks, addYears, format } from 'date-fns';
-import { isDateOnlyDeadline, toISODeadline } from './deadlines';
+import { getDeadlineDateKey, isDateOnlyDeadline, toISODeadline } from './deadlines';
 
 export type RecurrenceType = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
@@ -28,6 +28,44 @@ const addByCustomRule = (base: Date, rule?: string | null): Date => {
     case 'month': return addMonths(base, n);
     default: return addYears(base, n);
   }
+};
+
+type RecurringTask = {
+  title: string;
+  description?: string | null;
+  deadline?: string | null;
+  recurrence_type?: RecurrenceType;
+  recurrence_rule?: string | null;
+  date_key?: string;
+  urgency?: boolean | null;
+  importance?: boolean | null;
+  activity_id: string | null;
+  estimated_minutes?: number | null;
+  estimated_pomodoros?: number;
+};
+
+/**
+ * Fields of the next occurrence of a completed recurring task, or null when the task doesn't repeat.
+ * Carries the time estimate over, resets pomodoro progress and files the new task under its own deadline day.
+ */
+export const buildNextOccurrence = (task: RecurringTask, now: Date = new Date()) => {
+  if (!task.recurrence_type || task.recurrence_type === 'none') return null;
+  const deadline = nextOccurrence(task.deadline, task.recurrence_type, task.recurrence_rule, now);
+  return {
+    title: task.title,
+    description: task.description,
+    deadline,
+    recurrence_type: task.recurrence_type,
+    recurrence_rule: task.recurrence_rule,
+    date_key: getDeadlineDateKey(deadline),
+    urgency: task.urgency,
+    importance: task.importance,
+    activity_id: task.activity_id,
+    estimated_minutes: task.estimated_minutes ?? null,
+    estimated_pomodoros: task.estimated_pomodoros ?? 0,
+    completed_pomodoros: 0,
+    completed: false,
+  };
 };
 
 /**

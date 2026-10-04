@@ -222,7 +222,7 @@ function TrackerApp({ session }: { session: any }) {
                     selectedDate={selectedDate}
                     onSelectDate={setSelectedDate}
                     onNavigateToDaily={() => setTrackerSubView('grid')}
-                    onToggleTask={toggleTask}
+                    onToggleTask={(id, completed) => toggleTask(id, !completed)}
                     onDeleteTask={deleteTask}
                   />
                 </div>
@@ -295,6 +295,7 @@ function TrackerApp({ session }: { session: any }) {
             tasks={tasks}
             activities={activities}
             onUpdateTask={updateTask}
+            onToggleTask={(id, completed) => toggleTask(id, !completed)}
           />
         );
 

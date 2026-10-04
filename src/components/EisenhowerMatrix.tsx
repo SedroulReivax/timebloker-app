@@ -30,7 +30,9 @@ import type { Activity, Task } from '../types';
 interface EisenhowerMatrixProps {
   tasks: Task[];
   activities: Activity[];
-  onUpdateTask?: (id: string, updates: { urgency?: boolean | null; importance?: boolean | null; completed?: boolean }) => void;
+  onUpdateTask?: (id: string, updates: { urgency?: boolean | null; importance?: boolean | null }) => void;
+  /** completion goes through the shared toggle so recurring tasks spawn their next occurrence */
+  onToggleTask?: (id: string, completed: boolean) => void;
 }
 
 interface Quadrant {
@@ -91,6 +93,7 @@ export const EisenhowerMatrix: React.FC<EisenhowerMatrixProps> = ({
   tasks,
   activities,
   onUpdateTask,
+  onToggleTask,
 }) => {
   const { nerd } = useNerdMode();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
@@ -148,9 +151,7 @@ export const EisenhowerMatrix: React.FC<EisenhowerMatrixProps> = ({
   };
 
   const handleToggle = (taskId: string, completed: boolean) => {
-    if (onUpdateTask) {
-      onUpdateTask(taskId, { completed: !completed });
-    }
+    onToggleTask?.(taskId, completed);
   };
 
   /** "Move to" picker: the touch (and keyboard) way to sort a task, since drag and drop needs a mouse */
