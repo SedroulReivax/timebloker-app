@@ -18,6 +18,7 @@ import { FocusDayView } from './DayModeViews';
 import { ActivityFocusCards } from './ActivityFocusCards';
 import { Card } from './TrendsTab';
 import { FocusCurveCard } from './FocusCurveCard';
+import { ProductivityPointsCard } from './ProductivityPointsCard';
 import { StatTile } from './ui/detail';
 import { Takeaways } from './ui/takeaways';
 import { focusTakeaways } from '../lib/takeaways';
@@ -38,7 +39,9 @@ const FocusRangeView: React.FC<FocusTabProps & RangeState> = ({ activities, focu
   // Raw blocks stay here on purpose: windows, runs, the heatmap and depth all need the block sequence. Bounded to
   // the selected range. Plain daily totals (timer minutes) come from analytics_daily instead.
   const { blocks, loading: blocksLoading } = useBlockRange(win.startKey, win.endKey, liveBlocks);
-  const { rows: dailyRows, loading: dailyLoading } = useDailyAnalyticsRange(win.startKey, win.endKey);
+  // Same key as Trends/Waste (previous period + range): one cached fetch serves all three tabs, and the extra
+  // previous-period rows let the points history compare periods. Everything else here reads only win.dateKeys.
+  const { rows: dailyRows, loading: dailyLoading } = useDailyAnalyticsRange(win.prev?.startKey ?? win.startKey, win.endKey);
   const loading = blocksLoading || dailyLoading;
   const sleepIds = useMemo(() => getSleepActivityIds(activities), [activities]);
 
@@ -118,6 +121,8 @@ const FocusRangeView: React.FC<FocusTabProps & RangeState> = ({ activities, focu
       </div>
 
       <FocusCurveCard className={FULL} activities={activities} blocks={blocks} sleepIds={sleepIds} dateKeys={win.dateKeys} />
+
+      <ProductivityPointsCard id="focus-points-history" className={FULL} rows={dailyRows} win={win} weekly={longRange} loading={dailyLoading} activities={activities} />
 
       <Card id="focus-peak" className={FULL} title="Peak focus window" hint="A model, not a record: when you most reliably do sustained deep work, and how sure we are.">
         <PeakFocusCard analysis={analysis} context={peakContext} />

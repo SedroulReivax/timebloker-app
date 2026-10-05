@@ -12,6 +12,7 @@ import {
 import { getGoalPace, goalStartKey, groupGoalDailyRows, mergeGoalDailyLive, type GoalDayMinutes } from '../lib/goals';
 import { DEFAULT_RANGE, getRangeWindow, type InsightRange } from '../lib/insights';
 import { RangePicker } from './RangePicker';
+import { ProductivityPointsSelfFetch } from './ProductivityPointsCard';
 import { Section, StatTile } from './ui/detail';
 import { Takeaways } from './ui/takeaways';
 import { executionTakeaways } from '../lib/takeaways';
@@ -297,6 +298,9 @@ export const ExecutionTab: React.FC<ExecutionTabProps> = ({ activities, tasks, t
           days under 5 switches are left blank; dashed line = your typical day
         </Observation>
       </Section>
+
+      {/* same range as the turbulence picker above */}
+      <ProductivityPointsSelfFetch id="exec-points-history" className={FULL} win={win} weekly={range === '6m' || range === '1y'} activities={activities} />
 
       {/* ── Goal momentum ── */}
       <Section id="exec-goals" className={FULL} title="Goal momentum" hint="Velocity is your recency-weighted hours per week. Acceleration is the robust (Theil–Sen) trend of weekly hours over up to 8 complete weeks, judged against the goal’s own typical week. Needs 4+ complete weeks.">

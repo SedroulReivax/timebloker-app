@@ -25,6 +25,7 @@ import { analyzeFocus, formatWindow } from '../lib/focusModel';
 import { formatMinutes } from '../lib/taskTime';
 import type { ChangeResult } from '../lib/stats';
 import { ChangeChip } from './ChangeChip';
+import { ProductivityPointsCard } from './ProductivityPointsCard';
 import type { ReflectionFields } from './DayView';
 import { FULL, PAIR, pageClass } from './ui/page';
 import { ENERGY_LABELS, ENERGY_MAX } from '../lib/energy';
@@ -100,6 +101,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
     [blocks, activities, sleepIds, focusSessions, current, previous]
   );
   const profiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], focusSupplement), [dailyRows, focusSupplement]);
+  const pointsWin = useMemo(() => ({ dateKeys: current.dateKeys, prev: previous }), [current, previous]);
   const goalDailyByGoal = useMemo(() => groupGoalDailyRows(goalDailyRows as any[]), [goalDailyRows]);
   const sleepBlocks = useMemo(() => blocks.filter((b) => b.activity_id && sleepIds.has(b.activity_id)), [blocks, sleepIds]);
 
@@ -239,6 +241,16 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
           })()}
         </p>
       </Section>
+
+      <ProductivityPointsCard
+        id="review-points-history"
+        className={FULL}
+        rows={dailyRows}
+        win={pointsWin}
+        weekly={false}
+        loading={dailyLoading}
+        activities={activities}
+      />
 
       <Section
         id="review-energy"

@@ -262,6 +262,11 @@ const BY_SECTION: Record<string, Explanation> = {
     `Points ÷ counted minutes per day, points = Σ minutes × multiplier. ${COUNTED}`,
     'Look at the direction over weeks; single days swing a lot.',
   ),
+  'productivity-points-history': t(
+    'The productivity points you earned each day of the range, and their running total.',
+    `Points per day = Σ minutes × the activity's multiplier (-5 to +5), from the backend's daily totals. ${COUNTED} Days with nothing tracked show as 0. On 6m and 1y each bar is one week's sum. Per tracked day = range total ÷ days with counted time.`,
+    `Green bars gained points, red bars lost them; the running total shows whether the range adds up. ${CHANGE}`,
+  ),
   'trends-fragmentation': t(
     'How long you stay on one thing and how often you change.',
     `Typical stretch = mean length of runs on one activity. Switches per hour = activity changes ÷ counted hours (a 30+ min gap breaks the sequence). Category switches = the subset that also changes category.`,

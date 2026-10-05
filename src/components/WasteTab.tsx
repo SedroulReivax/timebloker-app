@@ -21,6 +21,7 @@ import { RangePicker, type RangeState } from './RangePicker';
 import { WasteDayView } from './DayModeViews';
 import { DayStrip, StripAxis } from './ActivityFocusCards';
 import { Card } from './TrendsTab';
+import { ProductivityPointsCard } from './ProductivityPointsCard';
 import { StatTile } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
 import { Takeaways } from './ui/takeaways';
@@ -132,6 +133,8 @@ const WasteRangeView: React.FC<WasteTabProps & RangeState> = ({ activities, bloc
           </div>
         )}
       </Card>
+
+      <ProductivityPointsCard id="waste-points-history" className={FULL} rows={dailyRows} win={win} weekly={weekly} loading={dailyLoading} activities={activities} />
 
       {w.totalMinutes > 0 && (
         <>

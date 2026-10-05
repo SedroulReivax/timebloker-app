@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { ANIM, CURVE, chartH } from './ui/chart';
 import { AttentionBudgetCard } from './AttentionBudgetCard';
+import { ProductivityPointsCard } from './ProductivityPointsCard';
 import { attentionPeriod, type AttentionActivityRow, type AttentionDailyRow } from '../lib/attention';
 import { Section, StatTile } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
@@ -384,6 +385,16 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
           )}
         </Card>
       </div>
+
+      <ProductivityPointsCard
+        id="trends-points-history"
+        className={FULL}
+        rows={dailyRows}
+        win={win}
+        weekly={longRange}
+        loading={dailyLoading}
+        activities={activities}
+      />
 
       <AttentionBudgetCard
         className={FULL}

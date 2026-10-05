@@ -11,6 +11,7 @@ import { SleepInsights } from './SleepInsights';
 import { RangePicker, type RangeState } from './RangePicker';
 import { PatternsDayView } from './DayModeViews';
 import { Card } from './TrendsTab';
+import { ProductivityPointsSelfFetch } from './ProductivityPointsCard';
 import { StatTile, useNerdMode } from './ui/detail';
 import { Takeaways } from './ui/takeaways';
 import { patternsTakeaways } from '../lib/takeaways';
@@ -264,6 +265,8 @@ const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities
           </>
         )}
       </Card>
+
+      <ProductivityPointsSelfFetch id="patterns-points-history" className={FULL} win={win} weekly={range === '6m' || range === '1y'} activities={activities} />
     </div>
   );
 };
