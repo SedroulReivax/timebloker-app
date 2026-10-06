@@ -1,5 +1,5 @@
-import React, { memo, useMemo } from 'react';
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
+import React, { memo, useId, useMemo } from 'react';
+import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import type { Activity } from '../types';
 import type { RangeBlock } from '../lib/blockRange';
 import { dayPoints, typicalCumulativePoints, type PointsSlot } from '../lib/dayPoints';
@@ -38,6 +38,7 @@ interface Row { slot: number; points: number; cumulative: number | null; typical
  * your typical running total. The tooltip and the lists below name the activities behind every gain and loss.
  */
 export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, blocks, sleepIds, dateKey, typicalKeys, typicalCutoff, id, className }) => {
+  const syncId = `dp-${useId().replace(/:/g, '')}`; // the two charts share one hover position
   const d = useMemo(() => dayPoints({ blocks, activities, sleepIds }, dateKey), [blocks, activities, sleepIds, dateKey]);
   const typical = useMemo(
     () => (typicalKeys?.length ? typicalCumulativePoints({ blocks, activities, sleepIds }, typicalKeys, { cutoffBlocks: typicalCutoff }) : null),
@@ -125,26 +126,36 @@ export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, b
           </div>
         </dl>
 
-        <div style={{ height: chartH(220) }}>
+        <p className="text-[11px] font-medium text-muted-foreground mb-1">Points in each half hour</p>
+        <div style={{ height: chartH(150) }}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ right: 4, top: 6, left: 0 }} barCategoryGap={1}>
+            <BarChart data={data} syncId={syncId} margin={{ right: 8, top: 6, left: 0 }} barCategoryGap={1}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
               <XAxis dataKey="slot" tick={TICK} interval={5} tickFormatter={(s) => slotAxisLabel(Number(s))} />
-              <YAxis yAxisId="pts" tick={TICK} width={34} tickFormatter={fmtAxis} />
-              <YAxis yAxisId="run" orientation="right" tick={TICK} width={40} tickFormatter={fmtAxis} />
-              <ReferenceLine yAxisId="pts" y={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.5} />
+              <YAxis tick={TICK} width={40} tickFormatter={fmtAxis} />
+              <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.5} />
               <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} content={TooltipBody as never} />
-              <Bar yAxisId="pts" dataKey="points" radius={[2, 2, 0, 0]} {...ANIM}>
+              <Bar dataKey="points" radius={[2, 2, 0, 0]} {...ANIM}>
                 {data.map((r) => <Cell key={r.slot} fill={r.points < 0 ? LOSS : GAIN} />)}
               </Bar>
-              {typical && <Line yAxisId="run" type={CURVE} dataKey="typical" stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.7} dot={false} connectNulls={false} {...ANIM} />}
-              <Line yAxisId="run" type={CURVE} dataKey="cumulative" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 3 }} connectNulls={false} {...ANIM} />
-            </ComposedChart>
+            </BarChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-[11px] text-muted-foreground mt-2">
-          Bars: points in each half hour (left axis) · line: running total through the day (right axis){typical && ' · dashed: your typical running total'}
-        </p>
+
+        <p className="text-[11px] font-medium text-muted-foreground mt-3 mb-1">Running total through the day{typical && <span className="font-normal"> · dashed: your typical</span>}</p>
+        <div style={{ height: chartH(150) }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} syncId={syncId} margin={{ right: 8, top: 6, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="slot" tick={TICK} interval={5} tickFormatter={(s) => slotAxisLabel(Number(s))} />
+              <YAxis tick={TICK} width={40} tickFormatter={fmtAxis} />
+              <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.5} />
+              <RechartsTooltip content={TooltipBody as never} />
+              {typical && <Line type={CURVE} dataKey="typical" stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.7} dot={false} connectNulls={false} {...ANIM} />}
+              <Line type={CURVE} dataKey="cumulative" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 3 }} connectNulls={false} {...ANIM} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
 
         <h3 className="text-xs font-semibold mt-4 mb-2">Where the points came from</h3>
         <ul className="space-y-2">
