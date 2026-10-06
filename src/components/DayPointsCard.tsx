@@ -65,7 +65,7 @@ export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, b
     const row = active ? payload?.[0]?.payload : undefined;
     if (!row) return null;
     return (
-      <div className="rounded-md border border-border bg-popover text-popover-foreground shadow-md px-3 py-2 text-xs space-y-1 max-w-[260px]">
+      <div className="rounded-md border border-border bg-popover text-popover-foreground shadow-md px-3 py-2 text-xs space-y-1 w-[260px] max-w-[70vw] -translate-y-full -mt-2">
         <div className="font-medium">{span(row.slot)}</div>
         {row.s.minutes === 0 ? <div className="text-muted-foreground">nothing counted</div> : (
           <>
@@ -134,7 +134,7 @@ export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, b
               <XAxis dataKey="slot" tick={TICK} interval={5} tickFormatter={(s) => slotAxisLabel(Number(s))} />
               <YAxis tick={TICK} width={40} tickFormatter={fmtAxis} />
               <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.5} />
-              <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} content={TooltipBody as never} />
+              <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} content={TooltipBody as never} position={{ y: 0 }} allowEscapeViewBox={{ x: false, y: true }} wrapperStyle={{ zIndex: 30, pointerEvents: 'none' }} />
               <Bar dataKey="points" radius={[2, 2, 0, 0]} {...ANIM}>
                 {data.map((r) => <Cell key={r.slot} fill={r.points < 0 ? LOSS : GAIN} />)}
               </Bar>
@@ -150,7 +150,8 @@ export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, b
               <XAxis dataKey="slot" tick={TICK} interval={5} tickFormatter={(s) => slotAxisLabel(Number(s))} />
               <YAxis tick={TICK} width={40} tickFormatter={fmtAxis} />
               <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.5} />
-              <RechartsTooltip content={TooltipBody as never} />
+              {/* hover line and dot only: the details popup shows once, above the top chart */}
+              <RechartsTooltip content={() => null} />
               {typical && <Line type={CURVE} dataKey="typical" stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="3 3" strokeOpacity={0.7} dot={false} connectNulls={false} {...ANIM} />}
               <Line type={CURVE} dataKey="cumulative" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 3 }} connectNulls={false} {...ANIM} />
             </LineChart>
