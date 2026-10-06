@@ -2,7 +2,7 @@ import React from 'react';
 import { Grid2x2 } from 'lucide-react';
 import type { Activity, TaskFocusSession } from '../types';
 import type { RangeBlock } from '../lib/blockRange';
-import { FocusDayView, PatternsDayView, TrendsDayView, WasteDayView } from './DayModeViews';
+import { FocusDayView, PatternsDayView, PointsDayView, TrendsDayView, WasteDayView } from './DayModeViews';
 import { LazyMount } from './ui/detail';
 
 interface DayFullAnalysisProps {
@@ -16,6 +16,7 @@ interface DayFullAnalysisProps {
 
 const SECTIONS = [
   { id: 'day-vs-typical', label: 'vs typical' },
+  { id: 'day-points-heading', label: 'Points' },
   { id: 'day-focus', label: 'Focus' },
   { id: 'day-waste', label: 'Waste' },
   { id: 'day-flow', label: 'Flow' },
@@ -49,6 +50,8 @@ export const DayFullAnalysis: React.FC<DayFullAnalysisProps> = ({ onOpenTracker,
 
     <Heading id="day-vs-typical">Against your typical day</Heading>
     <LazyMount minHeight={320}><TrendsDayView {...props} embedded /></LazyMount>
+    <Heading id="day-points-heading">Productivity points</Heading>
+    <LazyMount minHeight={420}><PointsDayView {...props} embedded /></LazyMount>
     <Heading id="day-focus">Focus</Heading>
     <LazyMount minHeight={420}><FocusDayView {...props} embedded /></LazyMount>
     <Heading id="day-waste">Waste</Heading>

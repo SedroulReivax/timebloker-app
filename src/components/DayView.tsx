@@ -174,7 +174,7 @@ export const DayView: React.FC<DayViewProps> = ({ selectedDate, blocks, activiti
         />
         <StatTile
           label="Productivity"
-          to="day-focus-curve"
+          to="day-points"
           value={daySummary.productivityScore === null ? '—' : formatProductivity(daySummary.productivityScore)}
           sub={!hasMultipliers ? 'no multipliers set yet' : daySummary.productivityScore === null ? undefined : `${formatPoints(daySummary.productivityPoints)} in total`}
         />

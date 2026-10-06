@@ -302,6 +302,11 @@ const BY_SECTION: Record<string, Explanation> = {
     'Per 30-min slot: "Per minute" = productivity points ÷ counted minutes in that slot; "Points" = points per day with tracking. Points = minutes × multiplier.',
     'Above the line is productive time, below is waste. Plan demanding work where the curve is highest.',
   ),
+  'day-points': t(
+    "Where this day's productivity points came from, half hour by half hour.",
+    `Points per half hour = Σ minutes × the activity's multiplier (-5 to +5) for the counted blocks in it. ${COUNTED} Running total = points from midnight to the end of each half hour; its last value is the day's total, the same number as everywhere else. Typical (dashed) = the median running total of your last 28 days at each half hour, cut at the same time of day for today.`,
+    'Green bars earned points, red bars lost them. Where the solid line climbs above the dashed one you are ahead of a usual day; flat or falling stretches are where the day leaked. The lists name the activities behind each gain and loss.',
+  ),
   'day-focus-curve': t(
     'When in this day you were productive.',
     'Per 30-min slot: productivity points ÷ counted minutes (per minute) or the points themselves. Points = minutes × multiplier.',

@@ -19,6 +19,7 @@ import { ActivityFocusCards, DayStrip, StripAxis } from './ActivityFocusCards';
 import { SleepInsights } from './SleepInsights';
 import { Card } from './TrendsTab';
 import { FocusCurveCard } from './FocusCurveCard';
+import { DayPointsCard } from './DayPointsCard';
 import { StatTile } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
 import { formatProductivity } from '../lib/activityFlags';
@@ -145,7 +146,7 @@ export const TrendsDayView: React.FC<DayBase> = (props) => {
           { label: 'Deep focus', metric: 'deep', fmt: (v) => formatMinutes(Math.round(v)), to: props.embedded ? 'dv-runs' : undefined },
           { label: 'Focus quality', metric: 'quality', fmt: (v) => `${Math.round(v)}%`, to: props.embedded ? 'dv-depth' : undefined },
           { label: 'Logged', metric: 'coverage', fmt: (v) => `${Math.round(v)}%`, to: props.embedded ? 'dv-gaps' : 'dv-where' },
-          { label: 'Productivity', metric: 'productivity', fmt: signed, to: props.embedded ? 'day-focus-curve' : undefined },
+          { label: 'Productivity', metric: 'productivity', fmt: signed, to: props.embedded ? 'day-points' : undefined },
           { label: 'Waste', metric: 'waste', fmt: (v) => formatMinutes(Math.round(v)), to: props.embedded ? 'dv-waste-stretches' : undefined },
           { label: 'Switches / hour', metric: 'switchesPerHour', fmt: (v) => v.toFixed(1), to: props.embedded ? 'dv-flow' : undefined },
         ]}
@@ -188,6 +189,26 @@ export const TrendsDayView: React.FC<DayBase> = (props) => {
         </p>
       </Card>}
       <MultiDayNote embedded={props.embedded} what="Trend lines, fragmentation over time, estimates and goal pace" />
+    </Frame>
+  );
+};
+
+// ─── Points: one day (Analysis → Day only) ───────────────────────────────────
+
+export const PointsDayView: React.FC<DayBase> = (props) => {
+  const d = useDayData(props);
+  return (
+    <Frame d={d} {...props}>
+      <DayPointsCard
+        className={FULL}
+        id={props.embedded ? 'day-points' : 'dv-points'}
+        activities={props.activities}
+        blocks={d.blocks}
+        sleepIds={d.sleepIds}
+        dateKey={d.dayKey}
+        typicalKeys={d.historyKeys}
+        typicalCutoff={d.today ? d.elapsed : undefined}
+      />
     </Frame>
   );
 };
@@ -346,7 +367,7 @@ export const WasteDayView: React.FC<DayBase> = (props) => {
             today={d.today}
             specs={[
               { label: 'Waste', metric: 'waste', fmt: (v) => formatMinutes(Math.round(v)), to: 'dv-waste-stretches' },
-              { label: 'Productivity', metric: 'productivity', fmt: signed, to: props.embedded ? 'day-focus-curve' : undefined },
+              { label: 'Productivity', metric: 'productivity', fmt: signed, to: props.embedded ? 'day-points' : undefined },
             ]}
           />
           <p className="text-xs text-muted-foreground">{sum.wasteSharePct === null ? '' : `${sum.wasteSharePct}% of counted time · `}{Math.round(sum.wastePoints)} weighted waste pts</p>

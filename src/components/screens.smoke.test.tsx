@@ -22,7 +22,7 @@ import { DayFullAnalysis } from './DayFullAnalysis';
 import { WasteTab } from './WasteTab';
 import { PatternsTab } from './PatternsTab';
 import { ExecutionTab } from './ExecutionTab';
-import { FocusDayView, PatternsDayView, TrendsDayView, WasteDayView } from './DayModeViews';
+import { FocusDayView, PatternsDayView, PointsDayView, TrendsDayView, WasteDayView } from './DayModeViews';
 import { FocusCurveCard } from './FocusCurveCard';
 import { NerdModeProvider } from './ui/detail';
 import { Page, SectionGrid, TileRow, pageClass } from './ui/page';
@@ -359,9 +359,23 @@ describe('Analysis → Day', () => {
   it('runs every analysis for the selected day, with jump links and a tracker shortcut', () => {
     const blocks = [0, 1, 2, 3].map((i) => ({ date_key: '2026-09-22', block_index: 54 + i, activity_id: 'work' as string | null }));
     const out = html(<DayFullAnalysis activities={[workActivity]} focusSessions={[]} blocks={blocks} selectedDate={selectedDate} onOpenTracker={NOOP} />);
-    for (const t of ['Against your typical day', 'Focus runs this day', 'Waste', 'How the day flowed', 'Open in tracker', 'vs typical']) expect(out).toContain(t);
+    for (const t of ['Against your typical day', 'Productivity points', 'Focus runs this day', 'Waste', 'How the day flowed', 'Open in tracker', 'vs typical']) expect(out).toContain(t);
     expect(out).not.toContain('Pick 7d or longer');
     expect(out).not.toContain('NaN');
+  });
+
+  it('shows the points of each half hour, with the activities behind them', () => {
+    const yt: Activity = { id: 'yt', name: 'YouTube', color: '#ef4444', category: 'Leisure', productivity_multiplier: -0.5 };
+    const work: Activity = { ...workActivity, productivity_multiplier: 2 };
+    const blocks = [
+      ...[0, 1, 2].map((i) => ({ date_key: '2026-09-22', block_index: 54 + i, activity_id: 'work' as string | null })),
+      ...[0, 1].map((i) => ({ date_key: '2026-09-22', block_index: 57 + i, activity_id: 'yt' as string | null })),
+    ];
+    const out = html(<PointsDayView activities={[work, yt]} focusSessions={[]} blocks={blocks} selectedDate={selectedDate} embedded />);
+    for (const t of ['Points through the day', 'Where the points came from', 'Every half hour', 'YouTube', '+60 pts', '−10 pts', '+50 pts']) expect(out).toContain(t);
+    expect(out).not.toContain('NaN');
+    const none = html(<PointsDayView activities={[workActivity]} focusSessions={[]} blocks={blocks} selectedDate={selectedDate} embedded />);
+    expect(none).toContain('No activity has a productivity multiplier yet');
   });
 });
 
