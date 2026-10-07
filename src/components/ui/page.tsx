@@ -14,16 +14,19 @@ const WIDTHS = {
 } as const;
 
 /**
- * Class string for a page container. `flow` turns the page into a grid on big screens: one column below 1536px,
- * two from 2xl, three on ultrawides. Children that must stay full width add FULL; wrappers that pair two cards
- * add PAIR so their cards join the page grid instead of nesting a second grid.
+ * Class string for a page container. `flow` stacks cards in CSS columns on big screens (one column below 1536px,
+ * two from 2xl, three on ultrawides): each card drops into the shortest column, so a short card never leaves a
+ * hole under it (see .flow-cols in index.css). Children that must stay full width add FULL; wrappers that group
+ * two cards add PAIR so their cards join the columns instead of nesting a second layout.
  */
 export const pageClass = (width: keyof typeof WIDTHS = 'wide', flow = false) =>
-  `${WIDTHS[width]} mx-auto w-full page-enter ${flow ? 'space-y-4 2xl:space-y-0 2xl:grid 2xl:grid-cols-2 uw:grid-cols-3 2xl:gap-4 2xl:items-start' : 'space-y-4'}`;
-/** span the whole page grid (headers, tile rows, the core chart) */
-export const FULL = '2xl:col-span-full';
-/** a two-card wrapper whose cards should become page-grid items on big screens */
-export const PAIR = '2xl:contents';
+  `${WIDTHS[width]} mx-auto w-full page-enter ${flow ? 'flex flex-col gap-4 2xl:block flow-cols' : 'space-y-4'}`;
+/** the flow layout alone, for a section inside a page that sets its own width (e.g. a sub-tab) */
+export const flowClass = 'flex flex-col gap-4 2xl:block flow-cols';
+/** span every column of a flow page (headers, tile rows, the core chart) */
+export const FULL = '2xl:col-span-full flow-full';
+/** a card-group wrapper: stacked below 2xl, and its cards join the page columns from 2xl */
+export const PAIR = 'flex flex-col gap-4 2xl:contents flow-pair';
 
 export const Page: React.FC<{ width?: keyof typeof WIDTHS; flow?: boolean; className?: string; children: React.ReactNode }> = ({ width = 'wide', flow = false, className = '', children }) => (
   <div className={`${pageClass(width, flow)} ${className}`}>{children}</div>

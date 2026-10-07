@@ -57,8 +57,8 @@ const WasteRangeView: React.FC<WasteTabProps & RangeState> = ({ activities, bloc
   // Top-line waste/day, share and cost come straight from analytics_daily (the canonical deterministic total)
   // instead of a second recomputation from raw blocks. This screen reads no focus-model field, so no supplement.
   const mappedProfiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], null), [dailyRows]);
-  const cur = useMemo(() => mappedProfiles.filter((p) => win.dateKeys.includes(p.dateKey)), [mappedProfiles, win.dateKeys]);
-  const prev = useMemo(() => (win.prev ? mappedProfiles.filter((p) => win.prev!.dateKeys.includes(p.dateKey)) : null), [mappedProfiles, win.prev]);
+  const cur = useMemo(() => { const keys = new Set(win.dateKeys); return mappedProfiles.filter((p) => keys.has(p.dateKey)); }, [mappedProfiles, win.dateKeys]);
+  const prev = useMemo(() => { if (!win.prev) return null; const keys = new Set(win.prev.dateKeys); return mappedProfiles.filter((p) => keys.has(p.dateKey)); }, [mappedProfiles, win.prev]);
   const sum = useMemo(() => summarize(cur), [cur]);
   // Per-activity totals, the daily series and weekday averages use analytics_activity_daily; stretches, triggers,
   // return time and time-of-day placement are sequence-dependent and stay on the bounded raw blocks.
@@ -168,7 +168,7 @@ const WasteRangeView: React.FC<WasteTabProps & RangeState> = ({ activities, bloc
             <StripAxis />
           </Card>
 
-          <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+          <div className={PAIR}>
             <Card id="waste-weekday" detail title="By weekday" hint="Average waste per tracked day of each weekday.">
               <div style={{ height: chartH(170) }}>
                 <ResponsiveContainer width="100%" height="100%">

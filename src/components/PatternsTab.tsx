@@ -229,7 +229,7 @@ const PatternsRangeView: React.FC<PatternsTabProps & RangeState> = ({ activities
 
       <SleepInsights detail activities={activities} sleepLogs={sleepLogs} tasks={tasks} focusSessions={focusSessions} liveBlocks={liveBlocks} selectedDate={selectedDate} />
 
-      <Card id="patterns-gaps" detail summary={gaps.overallPct === null ? undefined : `${gaps.overallPct}% untracked`} title="Where you forget to track" hint={`Untracked share of each weekday hour on days you tracked anything${gaps.overallPct !== null ? `; ${gaps.overallPct}% of their elapsed time overall` : ''}. Days with nothing tracked at all are counted separately${gaps.notTrackedDays ? ` (${gaps.notTrackedDays} in this range)` : ''}. Every other graph is blind where this is dark. Sleep counts as tracked.`}>
+      <Card id="patterns-gaps" className={FULL} detail summary={gaps.overallPct === null ? undefined : `${gaps.overallPct}% untracked`} title="Where you forget to track" hint={`Untracked share of each weekday hour on days you tracked anything${gaps.overallPct !== null ? `; ${gaps.overallPct}% of their elapsed time overall` : ''}. Days with nothing tracked at all are counted separately${gaps.notTrackedDays ? ` (${gaps.notTrackedDays} in this range)` : ''}. Every other graph is blind where this is dark. Sleep counts as tracked.`}>
         {gaps.days === 0 ? (
           <p className="text-sm text-muted-foreground">Nothing tracked in this range yet.</p>
         ) : (

@@ -141,8 +141,12 @@ export const typicalCumulativePoints = (input: Input, dateKeys: string[], opts: 
   const { mult, skip } = setup(input);
   const keys = new Set(dateKeys);
   const perDay = new Map<string, number[]>();
+  // each day's cut-off is the same for every one of its blocks, so work it out once per day
+  const now = opts.now ?? new Date();
+  const limits = new Map<string, number>();
+  const limitOf = (k: string) => limits.get(k) ?? limits.set(k, limitFor(k, { ...opts, now })).get(k)!;
   for (const b of input.blocks) {
-    if (!keys.has(b.date_key) || b.block_index >= limitFor(b.date_key, opts) || !b.activity_id || skip.has(b.activity_id)) continue;
+    if (!keys.has(b.date_key) || b.block_index >= limitOf(b.date_key) || !b.activity_id || skip.has(b.activity_id)) continue;
     const arr = perDay.get(b.date_key) ?? perDay.set(b.date_key, new Array(SLOT_COUNT).fill(0)).get(b.date_key)!;
     arr[Math.floor(b.block_index / 3)] += 10 * (mult.get(b.activity_id) ?? 0);
   }

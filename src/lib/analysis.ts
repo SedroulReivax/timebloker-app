@@ -92,6 +92,20 @@ export const elapsedBlocksFor = (dateKey: string, now: Date): number => {
 
 const GAP_BREAK = 3; // 30 min without tracking ends a run and breaks a switch sequence
 
+/*
+ * "Run" means different things in different places, on purpose. Each is tuned to its question, so they are named here
+ * rather than merged (and each explainer in explain.ts says which one it uses):
+ *  - profileDays runs (here): same activity on strictly adjacent awake blocks. Feeds deep focus (3+ blocks), the run
+ *    histogram and the Day "Focus runs" list. Any gap ends the run. Switches count a change of activity within a gap
+ *    of under 30 minutes (GAP_BREAK).
+ *  - scoreDay (focusModel.ts): per-block focus depth. A blip of one block is tolerated after 2 clean blocks, because
+ *    depth decays and recovers rather than resetting.
+ *  - findRuns (activityFocus.ts): "what you focused on" by activity and time of day, tolerating one blip after 20
+ *    clean minutes. It describes what you logged, so it is not the Deep focus figure.
+ *  - buildDayFlows (flow.ts): one activity per flow, a lone untracked block inside it (DAY_FLOW_TOLERANCE) does not end it.
+ *  - buildChains (flow.ts) and SQL transitions: chains of different activities with under 30 minutes between them.
+ */
+
 export const profileDays = (input: AnalysisInput, dateKeys: string[], options: AnalysisOptions = {}): DayProfile[] => {
   const now = options.now ?? new Date();
   const eligible = options.eligible ?? DEFAULT_ELIGIBLE;
@@ -101,9 +115,10 @@ export const profileDays = (input: AnalysisInput, dateKeys: string[], options: A
   const mult = new Map(input.activities.map((a) => [a.id, a.productivity_multiplier ?? 0]));
   const ignored = new Set(input.sleepIds);
   for (const a of input.activities) if (a.analysis_ignored) ignored.add(a.id);
+  const wanted = new Set(dateKeys);
   const byDate = new Map<string, DayBlockInfo[]>();
   for (const b of input.blocks) {
-    if (!b.activity_id) continue;
+    if (!b.activity_id || !wanted.has(b.date_key)) continue; // only the days asked for get a 144-slot array
     const arr = byDate.get(b.date_key) ?? byDate.set(b.date_key, Array.from({ length: 144 }, () => ({ activityId: null as string | null }))).get(b.date_key)!;
     arr[b.block_index] = { activityId: b.activity_id, taskId: b.task_id ?? null };
   }
@@ -162,12 +177,14 @@ export const profileDays = (input: AnalysisInput, dateKeys: string[], options: A
       }
     }
 
-    // Switches between consecutive runs (a 30+ minute gap breaks the chain)
+    // Switches between consecutive runs (a 30+ minute gap breaks the chain). Picking the same activity back up after a
+    // short gap is one flow, not a change (same rule as the Patterns tab's flows), so it is not a switch.
     let switches = 0, crossSwitches = 0;
     for (let k = 1; k < runs.length; k++) {
       const prev = runs[k - 1], cur = runs[k];
       const gap = cur.startIdx - (prev.startIdx + prev.blocks);
       if (gap >= GAP_BREAK) continue;
+      if (prev.activityId === cur.activityId) continue;
       switches++;
       if ((prev.category ?? 'Uncategorized') !== (cur.category ?? 'Uncategorized')) crossSwitches++;
     }

@@ -233,6 +233,20 @@ html, body, #root {
 html[data-anim='off'] .page-enter > * { animation: none; }
 @media (prefers-reduced-motion: reduce) { .page-enter > * { animation: none; } }
 
+/* ─── Flow pages ───────────────────────────────────────────────────────────────
+   From 2xl, analysis pages stack their cards in CSS columns (3 on ultrawides) instead of a row grid, so a short
+   card never leaves empty space under it while a tall neighbour finishes. Cards never split across columns;
+   .flow-full items (headers, tile rows, the core chart) span every column, and .flow-pair wrappers dissolve so
+   their cards join the columns. Below 2xl the page is a single stacked column (flex + gap, see pageClass). */
+@media (min-width: 1536px) {
+  .flow-cols { column-count: 2; column-gap: 1rem; }
+  .flow-cols > *, .flow-cols > .flow-pair > * { break-inside: avoid; margin-bottom: 1rem; }
+  .flow-cols > .flow-full { column-span: all; }
+}
+@media (min-width: 2400px) {
+  .flow-cols { column-count: 3; }
+}
+
 /* Charts fade in (CSS, so the data can never be left hidden by a stalled animation) */
 @keyframes chart-in { from { opacity: 0; } to { opacity: 1; } }
 .recharts-wrapper { animation: chart-in 350ms ease-out both; }

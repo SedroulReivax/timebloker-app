@@ -92,9 +92,25 @@ describe('focus sessions', () => {
 
 describe('misc', () => {
   it('time accounting excludes sleep and splits task-linked vs other', () => {
-    const blocks = [b('d', 1, 'w', 't'), b('d', 2, 'w'), b('d', 3, 's')];
-    const acc = getTimeAccounting(blocks, { trackedMinutes: 30, untrackedMinutes: 100, elapsedMinutes: 130, coveragePct: 23 }, new Set(['s']));
+    const blocks = [b('2026-09-21', 1, 'w', 't'), b('2026-09-21', 2, 'w'), b('2026-09-21', 3, 's')];
+    const acc = getTimeAccounting(blocks, { trackedMinutes: 30, untrackedMinutes: 100, elapsedMinutes: 130, coveragePct: 23 }, new Set(['s']), now);
     expect(acc).toEqual({ taskLinked: 10, otherTracked: 10, untracked: 100 });
+  });
+  it('distributions and accounting ignore planned blocks that have not happened yet', () => {
+    // today is 72 blocks in at noon: block 80 is a plan for the afternoon, and 2026-09-23 is tomorrow
+    const blocks = [b('2026-09-22', 10, 'w', 't'), b('2026-09-22', 80, 'w', 't'), b('2026-09-23', 5, 'w')];
+    const cov = getCoverage(blocks, ['2026-09-22'], now);
+    expect(cov.trackedMinutes).toBe(10);
+    expect(getTimeAccounting(blocks, cov, new Set(), now)).toEqual({ taskLinked: 10, otherTracked: 0, untracked: cov.untrackedMinutes });
+    expect(getActivityDistribution(blocks, [{ id: 'w', name: 'Work' }], cov, now).find((r) => r.id === 'w')?.minutes).toBe(10);
+    expect(getDistribution(blocks, [{ id: 'w', category: 'Work' }], new Set(), cov, undefined, now).find((r) => r.category === 'Work')?.minutes).toBe(10);
+  });
+  it('timer-only blocks count as tracked and get their own row', () => {
+    const blocks = [b('2026-09-21', 1)];
+    const cov = getCoverage(blocks, ['2026-09-21'], now, { '2026-09-21': new Set([1, 2, 3]) });
+    expect(cov.trackedMinutes).toBe(30); // block 1 painted, 2 and 3 timer-only (1 is not counted twice)
+    expect(cov.timerOnlyMinutes).toBe(20);
+    expect(getActivityDistribution(blocks, [{ id: 'w', name: 'Work' }], cov, now).find((r) => r.id === 'timer')?.minutes).toBe(20);
   });
   it('sleep activity: flag beats name; name fallback prefers Health', () => {
     expect(findSleepActivities([{ id: '1', name: 'Nap', is_sleep_activity: true }, { id: '2', name: 'Sleep' }]).map((a) => a.id)).toEqual(['1']);

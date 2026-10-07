@@ -1,5 +1,5 @@
-import { parseISO } from 'date-fns';
-import { type DayProfile, type FocusSupplement } from './analysis';
+import { format, parseISO } from 'date-fns';
+import { elapsedBlocksFor, type DayProfile, type FocusSupplement } from './analysis';
 import type { Database } from '../database.types';
 
 type AnalyticsDailyRow = Database['public']['Tables']['analytics_daily']['Row'];
@@ -16,8 +16,47 @@ type AnalyticsDailyRow = Database['public']['Tables']['analytics_daily']['Row'];
  *  - a screen that reads none of them (Waste) passes null, and those fields are left at 0/[] for that
  *    caller only. `scores` (the per-block heatmap input) is never filled here; the heatmap reads raw
  *    profiles from profileDays.
+ *
+ * analytics_daily only has a row for days that were recomputed, so a day nothing was tracked on is missing entirely and would
+ * drop out of coverage (Logged %) and untracked time, unlike Day, Focus and Patterns, which profile every date. Pass
+ * `dateKeys` to fill those days with an empty profile (elapsed but nothing tracked). Days before the first row are left out:
+ * time before tracking began is not a logging gap.
  */
-export function mapAnalyticsToProfiles(rows: AnalyticsDailyRow[], focusSupplement: Map<string, FocusSupplement> | null): DayProfile[] {
+export function mapAnalyticsToProfiles(
+  rows: AnalyticsDailyRow[],
+  focusSupplement: Map<string, FocusSupplement> | null,
+  options: { dateKeys?: string[]; now?: Date } = {}
+): DayProfile[] {
+  const mapped = mapRows(rows, focusSupplement);
+  if (!options.dateKeys || rows.length === 0) return mapped;
+  const now = options.now ?? new Date();
+  const have = new Set(rows.map((r) => r.date_key));
+  const first = rows.reduce((m, r) => (r.date_key < m ? r.date_key : m), rows[0].date_key);
+  const todayKey = format(now, 'yyyy-MM-dd');
+  for (const dateKey of options.dateKeys) {
+    if (have.has(dateKey) || dateKey < first) continue;
+    const elapsedBlocks = elapsedBlocksFor(dateKey, now);
+    if (elapsedBlocks === 0) continue;
+    const supp = focusSupplement?.get(dateKey);
+    mapped.push({
+      dateKey,
+      weekday: parseISO(dateKey).getDay(),
+      elapsedBlocks,
+      complete: dateKey < todayKey,
+      assignedBlocks: 0, sleepBlocks: 0, awakeBlocks: 0, ignoredBlocks: 0, wasteBlocks: 0, wasteCost: 0,
+      eligibleBlocks: supp?.eligibleBlocks ?? 0,
+      depthSum: supp?.depthSum ?? 0,
+      deepBlocks: supp?.deepBlocks ?? 0,
+      longestEligibleRun: supp?.longestEligibleRun ?? 0,
+      runs: supp?.runs ?? [],
+      switches: 0, crossSwitches: 0, productivityBlocks: 0,
+      scores: [],
+    });
+  }
+  return mapped.sort((a, b) => (a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0));
+}
+
+function mapRows(rows: AnalyticsDailyRow[], focusSupplement: Map<string, FocusSupplement> | null): DayProfile[] {
   return rows.map((d) => {
     const supp = focusSupplement?.get(d.date_key);
     return {

@@ -6,7 +6,8 @@ import type { Activity, TaskFocusSession } from '../types';
 import { useBlockRange } from '../hooks/useBlockRange';
 import { useDailyAnalyticsRange } from '../hooks/useAnalyticsRange';
 import type { RangeBlock } from '../lib/blockRange';
-import { bucketDailySeries, dailySeries, focusHeatmap, focusRunHistogram, profileDays, summarize } from '../lib/analysis';
+import { mean } from '../lib/stats';
+import { bucketDailySeries, dailySeries, dailyValues, focusHeatmap, focusRunHistogram, profileDays, summarize } from '../lib/analysis';
 import { analyzeFocus, describePeakContext, focusEligibilitySource, formatMinuteOfDay, formatWindow } from '../lib/focusModel';
 import { buildNights, getAverages, getChronotype, relToClock } from '../lib/sleepAnalysis';
 import { DEFAULT_RANGE, getRangeWindow, type InsightRange } from '../lib/insights';
@@ -86,16 +87,17 @@ const FocusRangeView: React.FC<FocusTabProps & RangeState> = ({ activities, focu
   const topBucket = [...hist.buckets].sort((a, b) => b.minutes - a.minutes)[0];
   const sum = useMemo(() => summarize(profiles), [profiles]);
   const peak = analysis.overall.window;
-  const days = Math.max(1, analysis.activeDays);
+  // same definition as Trends: the mean of each finished day with any tracking (a partial today or an untracked day never counts)
+  const deepPerDay = useMemo(() => mean(dailyValues(profiles, 'deep')), [profiles]);
   const takeaways = useMemo(() => focusTakeaways({
     windowLabel: peak ? formatWindow(peak) : null,
     windowDays: peak?.sampleDays ?? 0,
     windowTentative: peak?.confidence === 'low',
-    deepPerDay: analysis.activeDays > 0 ? sum.deepMinutes / analysis.activeDays : null,
+    deepPerDay,
     sustainedSharePct: sum.sustainedSharePct,
     typicalStretch: topBucket && topBucket.minutes > 0 ? topBucket.label.toLowerCase() : null,
     focusQualityPct: sum.focusQualityPct,
-  }), [peak, analysis.activeDays, sum, topBucket]);
+  }), [peak, deepPerDay, sum, topBucket]);
 
   return (
     <div className={pageClass('wide', true)}>
@@ -115,7 +117,7 @@ const FocusRangeView: React.FC<FocusTabProps & RangeState> = ({ activities, focu
 
       <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 ${FULL}`}>
         <StatTile label="Peak window" value={<span className="text-base md:text-lg">{peak ? formatWindow(peak) : '—'}</span>} sub={peak ? 'when deep work is most reliable' : 'needs more working days'} to="focus-peak" />
-        <StatTile label="Deep focus / day" value={formatMinutes(Math.round(sum.deepMinutes / days))} sub={`${formatMinutes(sum.deepMinutes)} in total`} to="focus-runs" />
+        <StatTile label="Deep focus / day" value={deepPerDay === null ? '—' : formatMinutes(Math.round(deepPerDay))} sub={`${formatMinutes(sum.deepMinutes)} in total`} to="focus-runs" />
         <StatTile label="Focus quality" value={sum.focusQualityPct === null ? '—' : `${sum.focusQualityPct}%`} sub={qualityTrend === null ? 'depth of focus work' : `${qualityTrend >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(qualityTrend))} pts`} to="focus-quality" />
         <StatTile label="Timer" value={formatMinutes(timerTotal)} sub="focus-timer sessions" to="focus-timer" />
       </div>
@@ -182,7 +184,7 @@ const FocusRangeView: React.FC<FocusTabProps & RangeState> = ({ activities, focu
         )}
       </Card>
 
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Card id="focus-runs" detail summary={topBucket && hist.totalMinutes ? `mostly ${topBucket.label.toLowerCase()}` : '—'} title="How long are your focus stretches?" hint="Share of your focus time by the length of the uninterrupted stretch it happened in.">
           {hist.totalMinutes === 0 ? (
             <p className="text-sm text-muted-foreground">No focus work in this range.</p>

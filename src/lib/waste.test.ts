@@ -113,3 +113,24 @@ describe('what led into waste: gap and attribution rules', () => {
     expect(w.triggers.find((t) => t.id === 'mail')!.ratePct).toBe(100);
   });
 });
+
+describe('waste edge cases', () => {
+  it('a waste stretch split off from another by 20+ untracked minutes is not led into by that waste activity', () => {
+    const d = '2026-09-25';
+    // yt, two untracked blocks (too many to merge), then ig: ig is a new stretch, but yt did not "lead into" it
+    const w = waste([...run(d, 54, 56, 'yt'), ...run(d, 59, 61, 'ig')], [d]);
+    expect(w.stretches).toHaveLength(2);
+    expect(w.stretches[1].ledBy).toBe(CONTEXT_GAP);
+    expect(w.triggers.find((t) => t.id === 'yt')).toBeUndefined();
+  });
+
+  it("time-of-day percentages only count the hours that have happened, so an unfinished today is not diluted", () => {
+    const d = '2026-09-30';
+    const morning = new Date(2026, 8, 30, 8, 15); // 49 blocks elapsed: only 10 of the 08:00-08:30 minutes have happened
+    const w = analyzeWaste({ blocks: run(d, 48, 48, 'yt'), activities: acts, sleepIds: new Set(['z']) }, [d], { now: morning });
+    const slot = w.bySlot.find((x) => x.startMin === 8 * 60)!; // the one elapsed block was all waste
+    expect(slot.yt).toBe(100); // was 33.3 when divided by the whole half hour
+    const later = w.bySlot.find((x) => x.startMin === 14 * 60)!; // not reached yet: nothing to divide by
+    expect(later.yt).toBe(0);
+  });
+});

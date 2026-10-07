@@ -440,6 +440,7 @@ describe('responsive building blocks', () => {
   it('Page and TileRow pick classes per screen class', () => {
     const out = html(<Page flow><TileRow count={8}><div>a</div></TileRow><SectionGrid><div>b</div></SectionGrid></Page>);
     expect(out).toContain('2xl:grid-cols-2');
+    expect(html(<Page flow><div>a</div></Page>)).toContain('flow-cols');
     expect(out).toContain('uw:grid-cols-3');
     expect(out).toContain('3xl:grid-cols-8');
     expect(pageClass('reading')).toContain('max-w-3xl');

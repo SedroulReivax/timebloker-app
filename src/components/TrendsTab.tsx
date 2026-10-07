@@ -12,7 +12,7 @@ import { Section, StatTile } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
 import { Takeaways } from './ui/takeaways';
 import { trendsTakeaways } from '../lib/takeaways';
-import { formatPoints, formatProductivity } from '../lib/activityFlags';
+import { formatPoints, formatProductivity, hasProductivityMultipliers } from '../lib/activityFlags';
 import type { Activity, Goal, Task, TaskBlockRef, TaskFocusSession } from '../types';
 import { useBlockRange } from '../hooks/useBlockRange';
 import { useDailyAnalyticsRange, useActivityAnalyticsRange, useGoalAnalyticsRange } from '../hooks/useAnalyticsRange';
@@ -72,9 +72,9 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
     () => focusSupplementByDate({ blocks: all, activities, sleepIds, sessions: focusSessions }, [...win.dateKeys, ...(win.prev?.dateKeys ?? [])]),
     [all, activities, sleepIds, focusSessions, win.dateKeys, win.prev]
   );
-  const mappedProfiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], focusSupplement), [dailyRows, focusSupplement]);
-  const cur = useMemo(() => mappedProfiles.filter(p => win.dateKeys.includes(p.dateKey)), [mappedProfiles, win.dateKeys]);
-  const prev = useMemo(() => (win.prev ? mappedProfiles.filter(p => win.prev!.dateKeys.includes(p.dateKey)) : null), [mappedProfiles, win.prev]);
+  const mappedProfiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], focusSupplement, { dateKeys: [...win.dateKeys, ...(win.prev?.dateKeys ?? [])] }), [dailyRows, focusSupplement, win.dateKeys, win.prev]);
+  const cur = useMemo(() => { const keys = new Set(win.dateKeys); return mappedProfiles.filter((p) => keys.has(p.dateKey)); }, [mappedProfiles, win.dateKeys]);
+  const prev = useMemo(() => { if (!win.prev) return null; const keys = new Set(win.prev.dateKeys); return mappedProfiles.filter((p) => keys.has(p.dateKey)); }, [mappedProfiles, win.prev]);
   const sum = useMemo(() => summarize(cur), [cur]);
 
   const current = useMemo(() => all.filter((b) => b.date_key >= win.startKey), [all, win.startKey]);
@@ -85,11 +85,12 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
     elapsedMinutes: sum.elapsedMinutes,
     coveragePct: sum.coveragePct,
   }), [sum]);
-  const curActivityRows = useMemo(() => activityDailyRows.filter((r: any) => win.dateKeys.includes(r.date_key)), [activityDailyRows, win.dateKeys]);
-  const prevActivityRows = useMemo(
-    () => (win.prev ? activityDailyRows.filter((r: any) => win.prev!.dateKeys.includes(r.date_key)) : undefined),
-    [activityDailyRows, win.prev]
-  );
+  const curActivityRows = useMemo(() => { const keys = new Set(win.dateKeys); return activityDailyRows.filter((r: any) => keys.has(r.date_key)); }, [activityDailyRows, win.dateKeys]);
+  const prevActivityRows = useMemo(() => {
+    if (!win.prev) return undefined;
+    const keys = new Set(win.prev.dateKeys);
+    return activityDailyRows.filter((r: any) => keys.has(r.date_key));
+  }, [activityDailyRows, win.prev]);
   const distribution = useMemo(
     () => distributionFromActivityDaily(curActivityRows as any[], activities, sleepIds, coverage, prevActivityRows as any[] | undefined),
     [curActivityRows, prevActivityRows, activities, sleepIds, coverage]
@@ -110,7 +111,7 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
 
   const longRange = range === '6m' || range === '1y';
   const chartSeries = useMemo(() => bucketDailySeries(dailySeries(cur), longRange), [cur, longRange]);
-  const hasMultipliers = useMemo(() => activities.some((a) => !!a.productivity_multiplier), [activities]);
+  const hasMultipliers = useMemo(() => hasProductivityMultipliers(activities), [activities]);
   const firstHalf = chartSeries.slice(0, Math.ceil(chartSeries.length / 2));
   const secondHalf = chartSeries.slice(Math.ceil(chartSeries.length / 2));
   const halfAvg = (pts: typeof chartSeries, pick: (p: (typeof chartSeries)[number]) => number | null) => mean(pts.map(pick).filter((v): v is number => v !== null));
@@ -338,7 +339,7 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
         </p>
       </Card>
 
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Card id="trends-quality" detail summary={sum.focusQualityPct === null ? '—' : `avg ${sum.focusQualityPct}%`} title="Focus quality over time" hint={`${longRange ? 'Weekly average' : 'Daily'} depth of focus-eligible time, 0-100. Blank points had under 30 min of focus work.`}>
           {chartSeries.every((p) => p.focusQualityPct === null) ? (
             <p className="text-sm text-muted-foreground">Not enough focus time yet.</p>
@@ -406,7 +407,7 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
         loading={dailyLoading || activityLoading}
       />
 
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Card id="trends-fragmentation" detail summary={sum.switchesPerHour === null ? '—' : `${sum.switchesPerHour.toFixed(1)} switches/h`} title="Switching" hint="How long you stay on one thing and how often you change, measured from your blocks.">
           <dl className="grid grid-cols-2 gap-3 text-sm">
             {([
@@ -476,7 +477,7 @@ const TrendsRangeView: React.FC<TrendsTabProps & RangeState> = ({ activities, ta
         </Card>
       </div>
 
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Card id="trends-planning" detail summary={planning.n ? `${planning.n} estimated task${planning.n === 1 ? '' : 's'}` : '—'} title="Planning" hint={`${planning.n} task(s) with an estimate. Shown side by side, not scored.`}>
           {planning.n === 0 ? (
             <p className="text-sm text-muted-foreground">Add estimates to tasks to compare estimated, scheduled and actual time.</p>

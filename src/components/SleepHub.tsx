@@ -15,7 +15,7 @@ import {
 } from '../lib/sleepAnalysis';
 import { Ring, SleepRibbon, scoreColor } from './SleepCharts';
 import { SleepInsights } from './SleepInsights';
-import { pageClass } from './ui/page';
+import { FULL, PAIR, flowClass, pageClass } from './ui/page';
 
 interface SleepHubProps {
   sleepLogs: SleepLog[];
@@ -188,9 +188,9 @@ const Overview: React.FC<{
   useEffect(() => { setGoalText(String(settings?.sleep_goal_hours ?? 8)); }, [settings?.sleep_goal_hours]);
 
   return (
-    <div className="space-y-4">
+    <div className={flowClass}>
       {/* Last night hero */}
-      <Card title={last ? `Last night · ${format(parseISO(last.nightDate), 'EEE d MMM')} → ${format(parseISO(last.wakeDate), 'EEE d MMM')}` : 'Last night'}>
+      <Card className={FULL} title={last ? `Last night · ${format(parseISO(last.nightDate), 'EEE d MMM')} → ${format(parseISO(last.wakeDate), 'EEE d MMM')}` : 'Last night'}>
         {last && last.main ? (
           <div className="flex flex-col md:flex-row gap-6 items-center md:items-start">
             <Ring value={last.totalMinutes / goalMinutes} color={lastScore ? scoreColor(lastScore.score) : undefined} label={`${formatDur(last.totalMinutes)} slept of a ${formatDur(goalMinutes)} goal`}>
@@ -241,7 +241,7 @@ const Overview: React.FC<{
       </Card>
 
       {/* Key numbers */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 ${FULL}`}>
         <Stat to="sleep-insights" label="7-night average" value={avg7.totalMinutes !== null ? formatDur(avg7.totalMinutes) : '—'} sub={delta !== null ? `${delta >= 0 ? '+' : '−'}${formatDur(Math.abs(delta))} vs the week before` : `goal ${formatDur(goalMinutes)}`} tone={avg7.totalMinutes !== null && avg7.totalMinutes >= goalMinutes * 0.95 ? 'good' : 'neutral'} />
         <Stat to="sleep-insights" label="Sleep debt" value={debt.nights >= 3 ? (debt.netMinutes === 0 ? 'None' : formatDur(debt.netMinutes)) : '—'} sub={debt.nights >= 3 ? `over the last ${debt.nights} nights` : 'needs 3 nights'} tone={debt.nights >= 3 ? (debt.netMinutes === 0 ? 'good' : debt.netMinutes >= 120 ? 'watch' : 'neutral') : 'neutral'} />
         <Stat to="sleep-insights" label="Regularity" value={reg.score !== null ? `${reg.score}` : '—'} sub={reg.bedSdMin !== null ? `bedtime ±${Math.round(reg.bedSdMin)} min · wake ±${Math.round(reg.wakeSdMin ?? 0)} min` : 'needs 2 nights'} tone={reg.score !== null ? (reg.score >= 80 ? 'good' : reg.score < 50 ? 'watch' : 'neutral') : 'neutral'} />
@@ -336,8 +336,8 @@ const Trends: React.FC<{
   const tip = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 };
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-1.5" role="tablist" aria-label="Range">
+    <div className={flowClass}>
+      <div className={`flex gap-1.5 ${FULL}`} role="tablist" aria-label="Range">
         {([14, 30, 90] as const).map((d) => (
           <button key={d} role="tab" aria-selected={days === d} onClick={() => onDays(d)} className={`px-3 py-1.5 text-xs font-medium rounded-full border ${days === d ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground border-border hover:bg-accent'}`}>
             {d} nights
@@ -346,7 +346,7 @@ const Trends: React.FC<{
       </div>
 
 
-      <Card id="sleep-duration" title="Duration" hint={`Hours slept per night with a 7-night average. Dashed line = your ${formatDur(goalMinutes)} goal.`}>
+      <Card id="sleep-duration" className={FULL} title="Duration" hint={`Hours slept per night with a 7-night average. Dashed line = your ${formatDur(goalMinutes)} goal.`}>
         <div style={{ height: chartH(220) }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={durationData}>
@@ -362,12 +362,12 @@ const Trends: React.FC<{
           </ResponsiveContainer>
         </div>
       </Card>
-      <Card id="sleep-timeline" detail summary={`${slice.length} nights`} title="Sleep timeline" hint="Each row is a night from 6 PM to 6 PM. Blue = main sleep, gaps = awake, amber = naps. The pale band is your target window.">
+      <Card id="sleep-timeline" className={FULL} detail summary={`${slice.length} nights`} title="Sleep timeline" hint="Each row is a night from 6 PM to 6 PM. Blue = main sleep, gaps = awake, amber = naps. The pale band is your target window.">
         <SleepRibbon nights={slice.length > 45 ? slice.slice(-45) : slice} targetBedRel={targetBedRel} targetWakeRel={targetWakeRel} />
         {slice.length > 45 && <p className="text-[11px] text-muted-foreground mt-1">Showing the latest 45 nights.</p>}
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-4 items-start">
+      <div className={PAIR}>
         <Card id="sleep-score" detail summary={(() => { const v = sliceScores.map((x) => x?.score).filter((x): x is number => typeof x === 'number'); return v.length ? `avg ${Math.round(v.reduce((a, b) => a + b, 0) / v.length)}` : '—'; })()} title="Sleep score" hint="Duration, continuity, regularity and your rating, weighted 40/20/25/15.">
           <div style={{ height: chartH(180) }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -424,8 +424,8 @@ const Patterns: React.FC<{
   const loggedNights = nights.filter((n) => n.quality !== null || n.factors.length > 0).length;
 
   return (
-    <div className="space-y-4">
-      <div className="grid md:grid-cols-3 gap-3">
+    <div className={flowClass}>
+      <div className={`grid md:grid-cols-3 gap-3 ${FULL}`}>
         <Stat label="Average bedtime" value={avgs.bedRel !== null ? formatRel(avgs.bedRel) : '—'} sub={avgs.wakeRel !== null ? `wake ${formatRel(avgs.wakeRel)} on average` : undefined} />
         <Stat label="Mid-sleep" value={avgs.midpointRel !== null ? formatRel(avgs.midpointRel) : '—'} sub={chrono ? `${chrono.label} (rough guide from your mid-sleep)` : 'needs tracked nights'} />
         <Stat label="Weekend shift" value={sjl ? `${sjl.minutes >= 0 ? '+' : '−'}${formatDur(Math.abs(sjl.minutes))}` : '—'} sub={sjl ? `weekend vs weekday mid-sleep (${sjl.freeNights}/${sjl.workNights} nights)` : 'needs 3+ weekend and weekday nights'} tone={sjl && Math.abs(sjl.minutes) >= 60 ? 'watch' : 'neutral'} />
@@ -450,7 +450,7 @@ const Patterns: React.FC<{
         </ul>
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-4 items-start">
+      <div className={PAIR}>
         <Card id="sleep-factors" detail summary={`${loggedNights} logged night${loggedNights === 1 ? '' : 's'}`} title="What affects your nights" hint="Compares nights with and without each factor. Needs 4+ nights in both groups. An association, not proof.">
           {factors.length === 0 ? (
             <p className="text-sm text-muted-foreground">

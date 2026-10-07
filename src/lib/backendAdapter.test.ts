@@ -69,4 +69,16 @@ describe('mapAnalyticsToProfiles', () => {
     expect(p.deepBlocks).toBe(6);
     expect(p.runs).toHaveLength(1);
   });
+
+  it('fills days with no row (nothing tracked) from the first tracked day on, so coverage matches the other tabs', () => {
+    const now = new Date(2026, 8, 25, 12, 0);
+    const keys = ['2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-26'];
+    const out = mapAnalyticsToProfiles([row(), row({ date_key: '2026-09-23' })], null, { dateKeys: keys, now });
+    // 09-19 and 09-20 are before tracking began: left out. 09-22 is a real logging gap. 09-26 is in the future.
+    expect(out.map((p) => p.dateKey)).toEqual(['2026-09-21', '2026-09-22', '2026-09-23']);
+    const gap = out[1];
+    expect(gap.elapsedBlocks).toBe(144);
+    expect(gap.complete).toBe(true);
+    expect(gap.assignedBlocks).toBe(0);
+  });
 });

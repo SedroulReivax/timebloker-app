@@ -5,7 +5,7 @@ import { ANIM, CURVE, TICK, chartH } from './ui/chart';
 import { Section } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
 import { ChangeChip } from './ChangeChip';
-import { formatPoints } from '../lib/activityFlags';
+import { formatPoints, hasProductivityMultipliers } from '../lib/activityFlags';
 import { explainSection } from '../lib/explain';
 import { productivityPointsHistory, type PointsDailyRow } from '../lib/productivityHistory';
 import { useDailyAnalyticsRange } from '../hooks/useAnalyticsRange';
@@ -39,7 +39,7 @@ const fmtSigned = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(
  */
 export const ProductivityPointsCard: React.FC<ProductivityPointsCardProps> = memo(({ id, rows, win, weekly, loading, activities, className }) => {
   const [view, setView] = useState<View>('daily');
-  const hasMultipliers = useMemo(() => activities.some((a) => !!a.productivity_multiplier && !a.analysis_ignored), [activities]);
+  const hasMultipliers = useMemo(() => hasProductivityMultipliers(activities), [activities]);
   // future days (a week or month still in progress, or a future selected date) are left off rather than drawn as 0
   const todayKey = format(new Date(), 'yyyy-MM-dd');
   const h = useMemo(

@@ -100,7 +100,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
     () => focusSupplementByDate({ blocks, activities, sleepIds, sessions: focusSessions }, [...current.dateKeys, ...previous.dateKeys]),
     [blocks, activities, sleepIds, focusSessions, current, previous]
   );
-  const profiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], focusSupplement), [dailyRows, focusSupplement]);
+  const profiles = useMemo(() => mapAnalyticsToProfiles(dailyRows as any[], focusSupplement, { dateKeys: [...current.dateKeys, ...previous.dateKeys] }), [dailyRows, focusSupplement, current, previous]);
   const pointsWin = useMemo(() => ({ dateKeys: current.dateKeys, prev: previous }), [current, previous]);
   const goalDailyByGoal = useMemo(() => groupGoalDailyRows(goalDailyRows as any[]), [goalDailyRows]);
   const sleepBlocks = useMemo(() => blocks.filter((b) => b.activity_id && sleepIds.has(b.activity_id)), [blocks, sleepIds]);
@@ -323,7 +323,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
       </Section>
 
 
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Section id="review-where" detail title="Where time went" summary={topCats[0] ? `most: ${topCats[0].category}` : undefined}>
           {topCats.length === 0 ? <p className="text-sm text-muted-foreground">Nothing tracked.</p> : (
             <div className="flex items-center gap-4">

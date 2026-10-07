@@ -13,7 +13,7 @@ export interface Explanation {
 // Shared phrases, so the same idea is always worded the same way
 const COUNTED = 'Counted time = tracked minutes minus sleep and ignored activities (timer-only minutes count).';
 const CHANGE = 'The "vs before" line only shows an arrow when the change is bigger than your normal day-to-day swing (80% interval over finished days).';
-const DEEP = 'Deep focus = focus-work minutes inside an unbroken run of 30+ minutes on one activity (a single 10-minute interruption is tolerated once a run has started).';
+const DEEP = 'Deep focus = focus-work minutes inside an unbroken run of 30+ minutes on one activity (any gap or change of activity ends the run).';
 const FOCUS_WORK = 'Focus work = activities weighted by your focus demand (or Work 100% / Admin 80% until any demand is set), plus task-linked blocks and timer sessions.';
 const DEPTH = 'Depth per 10-minute block: warms up over the first 20 minutes of a run, stays high, eases off after 90 minutes; an interruption drops it back to warm-up, and recent switches lower it.';
 
@@ -37,8 +37,8 @@ const BY_LABEL: Record<string, Explanation> = {
     'The best single number for "real work got done". 1-3 h a day is a strong day for most people; short scattered focus counts as focus but not as deep.',
   ),
   'Deep focus / day': t(
-    'Average deep focus per working day.',
-    `Deep focus minutes ÷ days. ${DEEP}`,
+    'Average deep focus per tracked day.',
+    `The mean of each finished day's deep focus, over days with any tracking (today, still in progress, is left out). ${DEEP}`,
     `Use it to compare periods, not to judge a single day. ${CHANGE}`,
   ),
   'Focus quality': t(
@@ -212,7 +212,7 @@ const BY_SECTION: Record<string, Explanation> = {
   ),
   'dv-runs': t(
     'Every stretch of 30+ minutes on one activity this day.',
-    'Runs of 3+ consecutive blocks on the same activity; one 10-minute interruption is tolerated after 20 clean minutes.',
+    'Runs of 3+ consecutive blocks on the same activity that counted as focus work. Any gap or change of activity ends a run, the same rule as the Deep focus tile.',
     'These are your real focus blocks. A day with none had no sustained work, whatever the total says.',
   ),
   'dv-depth': t(
@@ -231,9 +231,9 @@ const BY_SECTION: Record<string, Explanation> = {
     'Clusters at the same time across days point to a routine, not a lapse.',
   ),
   'dv-flow': t(
-    'The day as chains of activities.',
-    'Each line is a chain of activities with less than 30 minutes between them; a longer gap starts a new line. Sleep is left out.',
-    'Long chains = continuous days; many short lines = a stop-start day.',
+    'The day as a strip of flows.',
+    'Each block is one flow: an unbroken stretch of a single activity. Changing activity starts a new flow, and so does 20 minutes or more untracked. Sleep is grey and the rest of today is faded.',
+    'Long flows = continuous days; many short ones = a stop-start day.',
   ),
   'dv-gaps': t(
     'Which hours had nothing logged.',
@@ -321,8 +321,8 @@ const BY_SECTION: Record<string, Explanation> = {
   ),
   'focus-heatmap': t(
     'Deep-focus density by weekday and hour.',
-    'Per weekday × hour: average depth of all observed blocks (non-focus time counts as 0), recency-weighted; blank cells have too little data.',
-    'Bright cells are your reliable focus slots. Compare weekdays: some days may simply not have a focus slot.',
+    'Per weekday × hour: average depth of all observed blocks (non-focus time counts as 0), recency-weighted with a 60-day half-life, over every day (not only working days); blank cells have too little data.',
+    'Bright cells are your reliable focus slots. Compare weekdays: some days may simply not have a focus slot. The peak window above uses a shorter 45-day memory and working days only, so the two can differ slightly.',
   ),
   'focus-quality': t(
     'Focus quality over time.',
@@ -405,8 +405,8 @@ const BY_SECTION: Record<string, Explanation> = {
   ),
   'patterns-sleep': t(
     'Sleep against how the next day went.',
-    'One dot per night: sleep hours (from your sleep blocks) against a measure of the following finished day; the trend is a rank correlation, permutation-tested so chance patterns are not called findings.',
-    'With fewer than ~14 nights these are hints, not findings. Correlation is not cause.',
+    'Each dot is one night: how long you slept (from your sleep blocks) and how the following finished day went. We check whether short nights and long nights lead to different days, and only call it a real pattern when luck is an unlikely explanation.',
+    'With fewer than about 14 nights, treat results as hints. A link is not a cause: a busy week can cause both short sleep and a bad day.',
   ),
 
   // ── Execution ──

@@ -5,7 +5,7 @@ import type { RangeBlock } from '../lib/blockRange';
 import { dayPoints, typicalCumulativePoints, type PointsSlot } from '../lib/dayPoints';
 import { formatMinuteOfDay } from '../lib/focusModel';
 import { formatMinutes } from '../lib/taskTime';
-import { formatMultiplier, formatPoints } from '../lib/activityFlags';
+import { formatMultiplier, formatPoints, hasProductivityMultipliers } from '../lib/activityFlags';
 import { slotAxisLabel } from '../lib/timeOfDay';
 import { ANIM, CURVE, TICK, chartH } from './ui/chart';
 import { Section } from './ui/detail';
@@ -58,7 +58,7 @@ export const DayPointsCard: React.FC<DayPointsCardProps> = memo(({ activities, b
   const maxAbs = Math.max(1, ...d.byActivity.map((a) => Math.abs(a.points)));
   const counted = d.slots.filter((s) => s.minutes > 0);
 
-  const hasMultipliers = activities.some((a) => !!a.productivity_multiplier && !a.analysis_ignored);
+  const hasMultipliers = hasProductivityMultipliers(activities);
   const hasData = d.countedMinutes > 0;
 
   const TooltipBody = ({ active, payload }: { active?: boolean; payload?: readonly { payload?: Row }[] }) => {

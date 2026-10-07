@@ -176,6 +176,13 @@ describe('switching', () => {
     const close = one([...run(D, 54, 56, 'w1'), ...run(D, 58, 60, 'w2')]); // 1 block gap
     expect(close.switches).toBe(1);
   });
+
+  it('picking the same activity back up after a short gap is not a switch', () => {
+    const p = one([...run(D, 54, 56, 'w1'), ...run(D, 58, 60, 'w1')]); // 1 block gap, same activity
+    expect(p.switches).toBe(0);
+    const withOther = one([...run(D, 54, 56, 'w1'), ...run(D, 58, 60, 'w1'), ...run(D, 61, 63, 'l')]);
+    expect(withOther.switches).toBe(1); // w1 -> l only
+  });
 });
 
 describe('days and comparisons', () => {

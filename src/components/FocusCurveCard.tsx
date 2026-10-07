@@ -7,7 +7,7 @@ import { slotAxisLabel, SLOT_COUNT } from '../lib/timeOfDay';
 import { ANIM, CURVE, smoothSeries, TICK, chartH } from './ui/chart';
 import { Section } from './ui/detail';
 import { SetupNudge } from './ui/analysisNav';
-import { formatProductivity } from '../lib/activityFlags';
+import { formatProductivity, hasProductivityMultipliers } from '../lib/activityFlags';
 
 interface FocusCurveCardProps {
   activities: AnalysisActivity[];
@@ -52,8 +52,8 @@ const extremes = (pts: CurvePoint[], mode: CurveMode) => {
   let best: { slot: number; v: number } | null = null, worst: { slot: number; v: number } | null = null;
   for (let s = 0; s + WINDOW <= SLOT_COUNT; s++) {
     const win = pts.slice(s, s + WINDOW).filter((p) => p.value !== null);
-    if (win.length < 2) continue;
     const mins = win.reduce((a, p) => a + p.minutes, 0);
+    if (win.length < 2 || mins < 60) continue; // the doc above promises an hour of judged time, not just two touched half hours
     const v = mode === 'avg'
       ? win.reduce((a, p) => a + (p.value as number) * p.minutes, 0) / mins
       : win.reduce((a, p) => a + p.pointsPerDay, 0);
@@ -86,7 +86,7 @@ export const FocusCurveCard: React.FC<FocusCurveCardProps> = React.memo(({ activ
     return smoothSeries(typical ? smoothSeries(merged, 'typical') : merged, 'value');
   }, [raw, typical, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const hasMultipliers = activities.some((a) => (a.productivity_multiplier ?? 0) !== 0);
+  const hasMultipliers = hasProductivityMultipliers(activities);
   const hasData = raw.some((p) => p.value !== null);
   const values = data.flatMap((p) => [p.value, p.typical]).filter((v): v is number => typeof v === 'number');
   const floor = mode === 'avg' ? 0.5 : 5;

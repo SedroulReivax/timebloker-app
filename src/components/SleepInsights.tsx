@@ -22,11 +22,33 @@ interface SleepInsightsProps {
 
 const WINDOW_DAYS = 90;
 
-const VERDICT_TEXT: Record<SleepEffect['verdict'], string> = {
-  clear: 'A clear pattern in your data.',
-  possible: 'Possibly a pattern, but not certain yet. Worth watching.',
-  none: 'No relationship detectable in your data.',
-  insufficient: 'Not enough nights yet (needs 10).',
+const MIN_NIGHTS = 10;
+
+/** How sure we are, in plain words. */
+const CONFIDENCE_TEXT: Record<Exclude<SleepEffect['verdict'], 'insufficient'>, string> = {
+  clear: 'Strong enough that luck is unlikely to explain it.',
+  possible: 'Could still be luck. Keep logging and check back.',
+  none: "How long you sleep doesn't seem to change this.",
+};
+
+const VERDICT_LABEL: Record<SleepEffect['verdict'], string> = {
+  clear: 'Real pattern',
+  possible: 'Maybe',
+  none: 'No link',
+  insufficient: 'Too early',
+};
+
+/** What the data says for one measure, as one sentence (null when there is nothing to say yet). */
+const describeEffect = (metric: { label: string; fmt: (v: number) => string }, effect: SleepEffect): string | null => {
+  if (effect.verdict === 'none' || effect.verdict === 'insufficient') return null;
+  const { diff, short, other, association } = effect;
+  if (diff && short.median !== null && other.median !== null) {
+    const size = metric.fmt(Math.abs(diff.value));
+    return `After a night under ${formatDur(SHORT_SLEEP_MIN)}, your next day was usually about ${size} ${diff.value < 0 ? 'lower' : 'higher'}: ${metric.fmt(short.median)} versus ${metric.fmt(other.median)} after ${formatDur(SHORT_SLEEP_MIN)} or more.`;
+  }
+  if (association.rho === null) return null;
+  const what = metric.label.replace('Next-day ', '').toLowerCase();
+  return `The longer you sleep, the ${association.rho > 0 ? 'higher' : 'lower'} your ${what} tends to be the next day. There are too few short or long nights to say by how much.`;
 };
 
 export const SleepInsights: React.FC<SleepInsightsProps & { detail?: boolean }> = ({ activities, tasks, focusSessions, liveBlocks, selectedDate, detail }) => {
@@ -52,8 +74,8 @@ export const SleepInsights: React.FC<SleepInsightsProps & { detail?: boolean }> 
       <div className="space-y-4">
       <div>
         <p className="text-xs text-muted-foreground">
-          Last {WINDOW_DAYS} days ({format(parseISO(startKey), 'd MMM')} – {format(parseISO(endKey), 'd MMM')}) · {analysis.nights.length} nights with tracked sleep.
-          Each result comes from a rank-correlation test, so a pattern is only called “clear” when it is unlikely to be chance. Associations, not proof of cause.
+          We compare each night's sleep with the day that followed, over the last {WINDOW_DAYS} days ({format(parseISO(startKey), 'd MMM')} – {format(parseISO(endKey), 'd MMM')}, {analysis.nights.length} nights with tracked sleep).
+          Something is only called a “real pattern” when it is unlikely to be luck. It shows a link, not a cause.
         </p>
       </div>
 
@@ -77,7 +99,7 @@ export const SleepInsights: React.FC<SleepInsightsProps & { detail?: boolean }> 
               </ScatterChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[10px] text-muted-foreground">One dot per night: hours slept (x) and the day after (y). The verdict below is what the test says, not what the dots seem to say.</p>
+          <p className="text-[10px] text-muted-foreground">Each dot is one night: how long you slept (across) and how the next day went (up). The verdicts below are checked more carefully than the dots can be read by eye.</p>
         </div>
       )}
 
@@ -86,25 +108,22 @@ export const SleepInsights: React.FC<SleepInsightsProps & { detail?: boolean }> 
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-xs font-semibold">{metric.label}</div>
             <span className={`text-[10px] px-2 py-0.5 rounded-full ${effect.verdict === 'clear' ? 'bg-green-500/15 text-green-600 dark:text-green-400' : effect.verdict === 'possible' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-muted text-muted-foreground'}`}>
-              {effect.verdict === 'clear' ? 'Clear' : effect.verdict === 'possible' ? 'Possible' : effect.verdict === 'none' ? 'No pattern' : 'Too early'}
+              {VERDICT_LABEL[effect.verdict]}
             </span>
           </div>
           {effect.n === 0 ? (
             <p className="text-xs text-muted-foreground mt-1">No data yet.</p>
+          ) : effect.verdict === 'insufficient' ? (
+            <p className="text-xs text-muted-foreground mt-1">Needs at least {MIN_NIGHTS} nights with this measure; you have {effect.n}.</p>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground mt-1">{VERDICT_TEXT[effect.verdict]} ({effect.n} nights{effect.association.p !== null ? `, p = ${effect.association.p < 0.001 ? '<0.001' : effect.association.p.toFixed(2)}` : ''})</p>
-              {effect.diff && effect.verdict !== 'none' && effect.verdict !== 'insufficient' && (
-                <p className="text-sm mt-1">
-                  After under 7h: median <strong>{effect.short.median !== null ? metric.fmt(effect.short.median) : '—'}</strong> ({effect.short.n} nights) · 7h or more: median <strong>{effect.other.median !== null ? metric.fmt(effect.other.median) : '—'}</strong> ({effect.other.n} nights).
-                  {' '}Likely difference {effect.diff.value >= 0 ? '+' : '−'}{metric.fmt(Math.abs(effect.diff.value))} ({metric.fmt(Math.min(effect.diff.lo, effect.diff.hi))} to {metric.fmt(Math.max(effect.diff.lo, effect.diff.hi))}).
-                </p>
-              )}
+              {describeEffect(metric, effect) && <p className="text-sm mt-1">{describeEffect(metric, effect)}</p>}
+              <p className="text-xs text-muted-foreground mt-1">{CONFIDENCE_TEXT[effect.verdict]} Based on {effect.n} nights.</p>
             </>
           )}
         </div>
       ))}
-      <p className="text-[10px] text-muted-foreground">Shortest night counted as “short”: under {formatDur(SHORT_SLEEP_MIN)}.</p>
+      <p className="text-[10px] text-muted-foreground">A night counts as “short” when it is under {formatDur(SHORT_SLEEP_MIN)}.</p>
       </div>
     </Section>
   );

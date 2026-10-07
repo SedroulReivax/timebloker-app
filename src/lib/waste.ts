@@ -156,6 +156,8 @@ export const analyzeWaste = (input: WasteInput, dateKeys: string[], opts: { now?
   const runsOf = new Map<string, number>();
   const triggeredRuns = new Map<string, number>();
   let observedDays = 0;
+  // minutes of each half hour that had elapsed on the observed days (today's unfinished hours are not time that could have been waste yet)
+  const slotDenom: number[] = new Array(SLOT_COUNT).fill(0);
 
   for (const dateKey of dateKeys) {
     const elapsed = elapsedBlocksFor(dateKey, now);
@@ -164,6 +166,7 @@ export const analyzeWaste = (input: WasteInput, dateKeys: string[], opts: { now?
     const judged = day.some((a) => a && !ignored.has(a));
     if (!judged) continue;
     observedDays++;
+    for (let sl = 0; sl < SLOT_COUNT; sl++) slotDenom[sl] += Math.max(0, Math.min(SLOT_MINUTES, elapsed * 10 - sl * SLOT_MINUTES));
 
     const labels: (string | null)[] = new Array(144).fill(null);
     let total = 0;
@@ -219,6 +222,7 @@ export const analyzeWaste = (input: WasteInput, dateKeys: string[], opts: { now?
       if (k < 0) ledBy = CONTEXT_START;
       else if (input.sleepIds.has(day[k]!)) ledBy = gap > WAKE_GAP_BLOCKS ? CONTEXT_GAP : CONTEXT_WAKE;
       else if (gap > LEAD_GAP_BLOCKS) ledBy = CONTEXT_GAP;
+      else if (isWaste(day[k])) ledBy = CONTEXT_GAP; // another waste stretch split off by 20+ untracked minutes is not what led into this one
       else ledBy = day[k]!;
       // Back to productive work?
       let r = end + 1;
@@ -294,10 +298,9 @@ export const analyzeWaste = (input: WasteInput, dateKeys: string[], opts: { now?
   }).sort((a, b) => b.minutes - a.minutes);
 
   const ids = rows.map((r) => r.id);
-  const denom = observedDays * SLOT_MINUTES;
   const bySlot = Array.from({ length: SLOT_COUNT }, (_, slot) => {
     const pt = { slot, startMin: slot * SLOT_MINUTES } as { slot: number; startMin: number } & Record<string, number>;
-    for (const r of rows) pt[r.id] = denom > 0 ? Math.round((r.slots[slot] / denom) * 1000) / 10 : 0;
+    for (const r of rows) pt[r.id] = slotDenom[slot] > 0 ? Math.round((r.slots[slot] / slotDenom[slot]) * 1000) / 10 : 0;
     return pt;
   });
 

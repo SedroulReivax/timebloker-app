@@ -26,6 +26,10 @@ export const getIgnoredActivityIds = (activities: FlaggedActivity[], sleepIds: S
 export const isWasteActivity = (a: FlaggedActivity, ignored: Set<string>): boolean =>
   !ignored.has(a.id) && (a.productivity_multiplier ?? 0) < 0;
 
+/** True once any activity analysis can judge has a productivity multiplier (ignored activities never count). */
+export const hasProductivityMultipliers = (activities: Pick<FlaggedActivity, 'analysis_ignored' | 'productivity_multiplier'>[]): boolean =>
+  activities.some((a) => !!a.productivity_multiplier && !a.analysis_ignored);
+
 /**
  * Parse what the user typed into a multiplier field. Accepts "-0.35", "-.5", "+1", "1,5" (comma decimal).
  * Empty means neutral (0). Returns null for text that is not a number. Clamped and rounded to 2 decimals.

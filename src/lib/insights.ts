@@ -70,6 +70,9 @@ export const elapsedBlocksForDate = (dateKey: string, now: Date): number => {
   return Math.min(144, Math.floor((now.getHours() * 60 + now.getMinutes()) / BLOCK_MINUTES));
 };
 
+/** Blocks that have already happened. Planned blocks later today (or on future days) are not time spent yet. */
+const elapsedOnly = (blocks: RangeBlock[], now: Date): RangeBlock[] => blocks.filter((b) => b.block_index < elapsedBlocksForDate(b.date_key, now));
+
 // ─── Tracking coverage (separate from focus/consistency) ─────────────────────
 
 export interface Coverage {
@@ -78,11 +81,15 @@ export interface Coverage {
   elapsedMinutes: number;
   /** 0-100, or null when nothing has elapsed. Not a productivity measure. */
   coveragePct: number | null;
+  /** part of trackedMinutes that is covered only by a focus-timer session (nothing painted on the grid) */
+  timerOnlyMinutes?: number;
 }
 
-export const getCoverage = (blocks: RangeBlock[], dateKeys: string[], now: Date = new Date()): Coverage => {
+/** `timerOnly` (date -> block indexes, see timerOnlyBlocks) adds the blocks a timer session covers with nothing painted. */
+export const getCoverage = (blocks: RangeBlock[], dateKeys: string[], now: Date = new Date(), timerOnly?: Record<string, Set<number>>): Coverage => {
   const byDate = groupBlocksByDate(blocks);
   let tracked = 0;
+  let timer = 0;
   let elapsed = 0;
   for (const dk of dateKeys) {
     const e = elapsedBlocksForDate(dk, now);
@@ -90,12 +97,14 @@ export const getCoverage = (blocks: RangeBlock[], dateKeys: string[], now: Date 
     const seen = new Set<number>();
     for (const b of byDate[dk] || []) if (b.activity_id && b.block_index < e) seen.add(b.block_index);
     tracked += seen.size;
+    for (const i of timerOnly?.[dk] ?? []) if (i < e && !seen.has(i)) { tracked++; timer++; }
   }
   return {
     trackedMinutes: tracked * BLOCK_MINUTES,
     untrackedMinutes: (elapsed - tracked) * BLOCK_MINUTES,
     elapsedMinutes: elapsed * BLOCK_MINUTES,
     coveragePct: elapsed > 0 ? Math.round((tracked / elapsed) * 100) : null,
+    ...(timer > 0 ? { timerOnlyMinutes: timer * BLOCK_MINUTES } : {}),
   };
 };
 
@@ -116,7 +125,8 @@ export const getDistribution = (
   activities: ActivityInfo[],
   sleepIds: Set<string>,
   coverage: Coverage,
-  prevBlocks?: RangeBlock[]
+  prevBlocks?: RangeBlock[],
+  now: Date = new Date()
 ): DistributionRow[] => {
   const info = new Map(activities.map((a) => [a.id, a]));
   const totals = new Map<string, number>();
@@ -128,8 +138,9 @@ export const getDistribution = (
       m.set(c, (m.get(c) || 0) + BLOCK_MINUTES);
     }
   };
-  add(totals, blocks);
-  if (prevBlocks) add(prevTotals, prevBlocks);
+  add(totals, elapsedOnly(blocks, now));
+  if (prevBlocks) add(prevTotals, elapsedOnly(prevBlocks, now));
+  if (coverage.timerOnlyMinutes) totals.set('Focus timer', coverage.timerOnlyMinutes);
   if (coverage.untrackedMinutes > 0) totals.set('Untracked', coverage.untrackedMinutes);
   const denom = coverage.elapsedMinutes || 1;
   return Array.from(totals.entries())
@@ -178,11 +189,12 @@ export interface ActivityDistributionRow { id: string; name: string; color: stri
 export const getActivityDistribution = (
   blocks: RangeBlock[],
   activities: NamedActivityInfo[],
-  coverage: Coverage
+  coverage: Coverage,
+  now: Date = new Date()
 ): ActivityDistributionRow[] => {
   const info = new Map(activities.map((a) => [a.id, a]));
   const totals = new Map<string, number>();
-  for (const b of blocks) {
+  for (const b of elapsedOnly(blocks, now)) {
     if (!b.activity_id) continue;
     totals.set(b.activity_id, (totals.get(b.activity_id) || 0) + BLOCK_MINUTES);
   }
@@ -191,6 +203,7 @@ export const getActivityDistribution = (
     const a = info.get(id);
     return { id, name: a?.name ?? 'Unknown activity', color: a?.color || 'hsl(var(--muted-foreground))', minutes, pct: Math.round((minutes / denom) * 100) };
   });
+  if (coverage.timerOnlyMinutes) rows.push({ id: 'timer', name: 'Focus timer', color: 'hsl(var(--primary))', minutes: coverage.timerOnlyMinutes, pct: Math.round((coverage.timerOnlyMinutes / denom) * 100) });
   if (coverage.untrackedMinutes > 0) rows.push({ id: 'untracked', name: 'Untracked', color: 'hsl(var(--muted))', minutes: coverage.untrackedMinutes, pct: Math.round((coverage.untrackedMinutes / denom) * 100) });
   return rows.sort((a, b) => b.minutes - a.minutes);
 };
@@ -229,7 +242,11 @@ export const activityDistributionFromActivityDaily = (
 
 export interface SessionLike { started_at: string; duration_minutes: number; task_id?: string | null }
 
-/** Focused minutes per local date. */
+/**
+ * Focused minutes per local date. A session counts on the day it STARTED, in full (the analytics_daily task_focus_minutes
+ * column does the same). The block-level views (timer-covered blocks in focusModel.sessionBlocksByDay) split a session that
+ * crosses midnight by block instead, so a late-night session can show as minutes on one day and covered blocks on two.
+ */
 export const getFocusByDate = (sessions: SessionLike[]): Record<string, number> => {
   const out: Record<string, number> = {};
   for (const s of sessions) {
@@ -260,10 +277,10 @@ export interface TimeAccounting { taskLinked: number; otherTracked: number; untr
  * Where elapsed time went: blocks linked to a task, other tracked blocks, and untracked time.
  * (Plans are not snapshotted, so "leakage" is measured as the untracked share of elapsed time.)
  */
-export const getTimeAccounting = (blocks: RangeBlock[], coverage: Coverage, sleepIds: Set<string>): TimeAccounting => {
+export const getTimeAccounting = (blocks: RangeBlock[], coverage: Coverage, sleepIds: Set<string>, now: Date = new Date()): TimeAccounting => {
   let taskLinked = 0;
   let other = 0;
-  for (const b of blocks) {
+  for (const b of elapsedOnly(blocks, now)) {
     if (!b.activity_id || sleepIds.has(b.activity_id)) continue;
     if (b.task_id) taskLinked += BLOCK_MINUTES;
     else other += BLOCK_MINUTES;

@@ -5,11 +5,12 @@ import { ANIM, CURVE, smoothSeries, chartH } from './ui/chart';
 import type { Activity, SleepLog, Task, TaskFocusSession } from '../types';
 import type { RangeBlock } from '../lib/blockRange';
 import { useBlockRange } from '../hooks/useBlockRange';
+import { useNow } from '../hooks/useNow';
 import { dayVsTypical, elapsedBlocksFor, profileDays, summarize, type DayMetric, type DayProfile } from '../lib/analysis';
-import { findRuns, judgedDays, TIMER_ID } from '../lib/activityFocus';
+import { TIMER_ID } from '../lib/activityFocus';
 import { analyzeWaste } from '../lib/waste';
 import { buildDayFlows } from '../lib/flow';
-import { formatMinuteOfDay } from '../lib/focusModel';
+import { formatMinuteOfDay, timerOnlyBlocks } from '../lib/focusModel';
 import { getActivityDistribution, getCoverage, getRangeWindow } from '../lib/insights';
 import { getSleepActivityIds } from '../lib/sleepActivity';
 import { formatMinutes } from '../lib/taskTime';
@@ -41,26 +42,59 @@ interface DayBase {
   picker?: React.ReactNode;
   /** inside the Analysis → Day tab: no header, picker or "pick 7d" note; the parent provides headings */
   embedded?: boolean;
+  /** day data computed once by a parent that shows several views of the same day (see DayFullAnalysis) */
+  data?: DayData;
+}
+
+export interface DayData {
+  dayKey: string;
+  blocks: RangeBlock[];
+  dayBlocks: RangeBlock[];
+  loading: boolean;
+  sleepIds: Set<string>;
+  day: DayProfile;
+  history: DayProfile[];
+  today: boolean;
+  elapsed: number;
+  historyKeys: string[];
+  now: Date;
+  /** blocks of this day covered only by a focus-timer session */
+  timerOnly: Set<number>;
 }
 
 const blockTime = (idx: number) => formatMinuteOfDay(idx * 10);
 const AXIS_TICKS = [0, 6, 12, 18, 24, 30, 36, 42];
 
-const useDayData = ({ activities, focusSessions, blocks: liveBlocks, selectedDate }: DayBase) => {
+/**
+ * Everything a single-day view needs, computed once. `now` ticks once a minute (and only matters for today), so the
+ * day and its same-time-of-day history always use the same cutoff.
+ */
+export const useDayData = ({ activities, focusSessions, blocks: liveBlocks, selectedDate }: DayBase): DayData => {
   const win = useMemo(() => getRangeWindow('1d', selectedDate), [selectedDate]);
   const dayKey = win.endKey;
   const { blocks, loading } = useBlockRange(win.history!.startKey, dayKey, liveBlocks);
   const sleepIds = useMemo(() => getSleepActivityIds(activities), [activities]);
   const today = isToday(selectedDate);
-  const elapsed = elapsedBlocksFor(dayKey, new Date());
+  const tick = useNow(60_000);
+  const minute = today ? Math.floor(tick.getTime() / 60_000) : 0;
+  const now = useMemo(() => new Date(), [minute]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elapsed = elapsedBlocksFor(dayKey, now);
   const input = useMemo(() => ({ blocks, activities, sleepIds, sessions: focusSessions }), [blocks, activities, sleepIds, focusSessions]);
-  const day = useMemo(() => profileDays(input, [dayKey])[0], [input, dayKey]);
+  const day = useMemo(() => profileDays(input, [dayKey], { now })[0], [input, dayKey, now]);
   const history = useMemo(
-    () => profileDays(input, win.history!.dateKeys, today ? { cutoffBlocks: elapsed } : {}),
-    [input, win.history, today, elapsed]
+    () => profileDays(input, win.history!.dateKeys, today ? { now, cutoffBlocks: elapsed } : { now }),
+    [input, win.history, today, now, elapsed]
   );
   const dayBlocks = useMemo(() => blocks.filter((b) => b.date_key === dayKey && b.block_index < elapsed), [blocks, dayKey, elapsed]);
-  return { dayKey, blocks, dayBlocks, loading, sleepIds, day, history, today, elapsed, historyKeys: win.history!.dateKeys };
+  const timerOnly = useMemo(() => timerOnlyBlocks(focusSessions, dayBlocks, dayKey, elapsed), [focusSessions, dayBlocks, dayKey, elapsed]);
+  return { dayKey, blocks, dayBlocks, loading, sleepIds, day, history, today, elapsed, historyKeys: win.history!.dateKeys, now, timerOnly };
+};
+
+/** A day view that reads the day data from a parent when it is given (props.data) and computes its own otherwise. */
+const withDayData = <P extends DayBase>(Body: React.FC<P & { d: DayData }>): React.FC<P> => {
+  const Own: React.FC<P> = (props) => <Body {...props} d={useDayData(props)} />;
+  const Shared: React.FC<P> = (props) => (props.data ? <Body {...props} d={props.data} /> : <Own {...props} />);
+  return Shared;
 };
 
 const Header: React.FC<{ dayKey: string; loading: boolean; picker: React.ReactNode; today: boolean }> = ({ dayKey, loading, picker, today }) => (
@@ -111,12 +145,12 @@ const signed = (v: number) => formatProductivity(v);
 
 // ─── Trends: one day ─────────────────────────────────────────────────────────
 
-export const TrendsDayView: React.FC<DayBase> = (props) => {
-  const d = useDayData(props);
+const TrendsDayViewBody: React.FC<DayBase & { d: DayData }> = (props) => {
+  const { d } = props;
   const dist = useMemo(() => {
-    const coverage = getCoverage(d.dayBlocks, [d.dayKey]);
+    const coverage = getCoverage(d.dayBlocks, [d.dayKey], d.now, { [d.dayKey]: d.timerOnly });
     return getActivityDistribution(d.dayBlocks, props.activities, coverage);
-  }, [d.dayBlocks, d.dayKey, props.activities]);
+  }, [d.dayBlocks, d.dayKey, d.now, d.timerOnly, props.activities]);
   const hourly = useMemo(() => {
     const top = dist.filter((r) => r.id !== 'untracked').slice(0, 6).map((r) => r.id);
     const rows = Array.from({ length: 24 }, (_, h) => {
@@ -136,7 +170,7 @@ export const TrendsDayView: React.FC<DayBase> = (props) => {
   const sum = summarize([d.day]);
 
   return (
-    <Frame d={d} {...props}>
+    <Frame {...props}>
       <DayTiles
         day={d.day}
         history={d.history}
@@ -195,10 +229,10 @@ export const TrendsDayView: React.FC<DayBase> = (props) => {
 
 // ─── Points: one day (Analysis → Day only) ───────────────────────────────────
 
-export const PointsDayView: React.FC<DayBase> = (props) => {
-  const d = useDayData(props);
+const PointsDayViewBody: React.FC<DayBase & { d: DayData }> = (props) => {
+  const { d } = props;
   return (
-    <Frame d={d} {...props}>
+    <Frame {...props}>
       <DayPointsCard
         className={FULL}
         id={props.embedded ? 'day-points' : 'dv-points'}
@@ -215,17 +249,17 @@ export const PointsDayView: React.FC<DayBase> = (props) => {
 
 // ─── Focus: one day ──────────────────────────────────────────────────────────
 
-export const FocusDayView: React.FC<DayBase> = (props) => {
-  const d = useDayData(props);
+const FocusDayViewBody: React.FC<DayBase & { d: DayData }> = (props) => {
+  const { d } = props;
   const dayKeys = useMemo(() => [d.dayKey], [d.dayKey]);
   const depth = useMemo(() => smoothSeries(Array.from({ length: SLOT_COUNT }, (_, s) => {
     const vals = d.day.scores.slice(s * 3, s * 3 + 3).filter((v): v is number => v !== null);
     return { slot: s, depth: vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) : null };
   }), 'depth'), [d.day]);
-  const runs = useMemo(() => {
-    const [only] = judgedDays({ blocks: d.blocks, activities: props.activities, sleepIds: d.sleepIds, sessions: props.focusSessions }, [d.dayKey], new Date());
-    return findRuns(only.day).filter((r) => r.blocks >= 3);
-  }, [d.blocks, props.activities, d.sleepIds, props.focusSessions, d.dayKey]);
+  // the same runs the Deep focus tile adds up: unbroken stretches of 30+ minutes on one activity that counted as focus work
+  const runs = useMemo(() => d.day.runs
+    .filter((r) => r.eligible && r.blocks >= 3)
+    .map((r) => ({ activityId: r.activityId === '__session__' ? TIMER_ID : r.activityId, startIdx: r.startIdx, endIdx: r.startIdx + r.blocks - 1, blocks: r.blocks })), [d.day]);
   const nameOf = (id: string) => (id === TIMER_ID ? 'Focus timer' : props.activities.find((a) => a.id === id)?.name ?? 'Unknown activity');
   const colorOf = (id: string) => props.activities.find((a) => a.id === id)?.color ?? '#94a3b8';
   // Depth per half hour as one smooth curve, coloured along the day by the activity that filled most of each half
@@ -255,7 +289,7 @@ export const FocusDayView: React.FC<DayBase> = (props) => {
   const depthLegend = useMemo(() => [...new Set(depthByActivity.map((p) => p.activityId).filter((id): id is string => !!id))], [depthByActivity]);
 
   return (
-    <Frame d={d} {...props}>
+    <Frame {...props}>
       <DayTiles
         day={d.day}
         history={d.history}
@@ -277,7 +311,7 @@ export const FocusDayView: React.FC<DayBase> = (props) => {
         typicalKeys={d.historyKeys}
         typicalCutoff={d.today ? d.elapsed : undefined}
       />
-      <Card id="dv-runs" detail summary={runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'} · longest ${formatMinutes(Math.max(...runs.map((r) => r.blocks)) * 10)}` : 'none'} title="Focus runs this day" hint="Every stretch of 30+ minutes on one activity (one 10-minute blip allowed).">
+      <Card id="dv-runs" detail summary={runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'} · longest ${formatMinutes(Math.max(...runs.map((r) => r.blocks)) * 10)}` : 'none'} title="Focus runs this day" hint="Every unbroken stretch of 30+ minutes on one activity that counted as focus work. These are the runs the Deep focus tile adds up, so a long run of something that is not focus work is not listed.">
         {runs.length === 0 ? <p className="text-sm text-muted-foreground">No 30+ minute stretch on one activity this day.</p> : (
           <ol className="space-y-1.5 text-xs">
             {runs.map((r) => (
@@ -350,13 +384,13 @@ export const FocusDayView: React.FC<DayBase> = (props) => {
 
 // ─── Waste: one day ──────────────────────────────────────────────────────────
 
-export const WasteDayView: React.FC<DayBase> = (props) => {
-  const d = useDayData(props);
+const WasteDayViewBody: React.FC<DayBase & { d: DayData }> = (props) => {
+  const { d } = props;
   const w = useMemo(() => analyzeWaste({ blocks: d.blocks, activities: props.activities, sleepIds: d.sleepIds }, [d.dayKey]), [d.blocks, props.activities, d.sleepIds, d.dayKey]);
   const sum = summarize([d.day]);
 
   return (
-    <Frame d={d} {...props}>
+    <Frame {...props}>
       {!w.hasWasteActivities ? (
         <Card title="Time waste"><SetupNudge action="Set multipliers">No activity counts as waste yet: give the ones you'd rather spend less time on a negative multiplier.</SetupNudge></Card>
       ) : (
@@ -408,8 +442,8 @@ export const WasteDayView: React.FC<DayBase> = (props) => {
 
 // ─── Patterns: one day ───────────────────────────────────────────────────────
 
-export const PatternsDayView: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: SleepLog[] }> = (props) => {
-  const d = useDayData(props);
+const PatternsDayViewBody: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: SleepLog[] } & { d: DayData }> = (props) => {
+  const { d } = props;
   const flows = useMemo(() => buildDayFlows(d.dayBlocks, d.sleepIds, d.elapsed), [d.dayBlocks, d.sleepIds, d.elapsed]);
   const segments = useMemo(() => {
     const cells: string[] = new Array(144).fill('gap');
@@ -425,16 +459,16 @@ export const PatternsDayView: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: S
   }, [flows, d.dayBlocks, d.sleepIds, d.elapsed]);
   const longest = flows.reduce((m, f) => Math.max(m, f.end - f.start + 1), 0);
   const gapSlots = useMemo(() => {
-    const tracked = new Set(d.dayBlocks.filter((b) => b.activity_id).map((b) => b.block_index));
+    const tracked = new Set([...d.dayBlocks.filter((b) => b.activity_id).map((b) => b.block_index), ...d.timerOnly]);
     const slots = new Array(SLOT_COUNT).fill(0);
     for (let i = 0; i < d.elapsed; i++) if (!tracked.has(i)) slots[Math.floor(i / 3)] += 10;
     return slots;
-  }, [d.dayBlocks, d.elapsed]);
+  }, [d.dayBlocks, d.timerOnly, d.elapsed]);
   const nameOf = (id: string) => props.activities.find((a) => a.id === id)?.name ?? 'Unknown activity';
   const untracked = gapSlots.reduce((a, b) => a + b, 0);
 
   return (
-    <Frame d={d} {...props}>
+    <Frame {...props}>
       <Card id="dv-flow" className={FULL} title="How the day flowed" hint="Each block is one flow: an unbroken stretch of a single activity. Changing activity starts a new flow, and so does 20 minutes or more untracked. Hatched is untracked, grey is sleep, faded is still to come.">
         {flows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing tracked this day.</p> : (
           <>
@@ -473,3 +507,9 @@ export const PatternsDayView: React.FC<DayBase & { tasks?: Task[]; sleepLogs?: S
     </Frame>
   );
 };
+
+export const TrendsDayView = withDayData(TrendsDayViewBody);
+export const PointsDayView = withDayData(PointsDayViewBody);
+export const FocusDayView = withDayData(FocusDayViewBody);
+export const WasteDayView = withDayData(WasteDayViewBody);
+export const PatternsDayView = withDayData(PatternsDayViewBody);

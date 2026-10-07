@@ -104,7 +104,7 @@ export const ExecutionTab: React.FC<ExecutionTabProps> = ({ activities, tasks, t
   }), [funnel, flow, netPerWeek, momentum, ttd]);
 
   return (
-    <div className={pageClass('wide')}>
+    <div className={pageClass('wide', true)}>
       <Takeaways items={takeaways} className={FULL} />
       <div className={FULL}>
         <p className="text-xs text-muted-foreground max-w-3xl">
@@ -201,7 +201,7 @@ export const ExecutionTab: React.FC<ExecutionTabProps> = ({ activities, tasks, t
       </Section>
 
       {/* ── Time to done + calibration ── */}
-      <div className={`grid md:grid-cols-2 gap-4 items-start ${PAIR}`}>
+      <div className={PAIR}>
         <Section id="exec-done" title="Time from created to done">
           {ttd.n === 0 ? (
             <p className="text-sm text-muted-foreground">No completed task has a completion time yet.</p>

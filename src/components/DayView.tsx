@@ -6,6 +6,8 @@ import { buildTimeline, formatSegmentRange, type DayBlock } from '../lib/dayTime
 import { elapsedBlocksForDate, getActivityDistribution, getCoverage, getDistribution } from '../lib/insights';
 import { profileDays, summarize } from '../lib/analysis';
 import { getSleepActivityIds } from '../lib/sleepActivity';
+import { timerOnlyBlocks } from '../lib/focusModel';
+import { useNow } from '../hooks/useNow';
 import { formatMinutes } from '../lib/taskTime';
 import { getDeadlineDateKey } from '../lib/deadlines';
 import { getFocusByDate } from '../lib/insights';
@@ -14,7 +16,7 @@ import { Section, StatTile, useNerdMode } from './ui/detail';
 import { Takeaways } from './ui/takeaways';
 import { SetupNudge } from './ui/analysisNav';
 import { dayTakeaways } from '../lib/takeaways';
-import { formatPoints, formatProductivity } from '../lib/activityFlags';
+import { formatPoints, formatProductivity, hasProductivityMultipliers } from '../lib/activityFlags';
 import { ANIM } from './ui/chart';
 import { EnergyRating } from './ui/rating';
 import { ENERGY_LABELS, ENERGY_MAX } from '../lib/energy';
@@ -54,7 +56,7 @@ const PROMPTS: { key: keyof ReflectionFields; label: string }[] = [
 
 export const DayView: React.FC<DayViewProps> = ({ selectedDate, blocks, activities, tasks, focusSessions, review, onSaveReview }) => {
   const dateKey = format(selectedDate, 'yyyy-MM-dd');
-  const now = new Date();
+  const now = useNow(60_000);
   const elapsed = elapsedBlocksForDate(dateKey, now);
   const isToday = dateKey === format(now, 'yyyy-MM-dd');
 
@@ -64,7 +66,9 @@ export const DayView: React.FC<DayViewProps> = ({ selectedDate, blocks, activiti
   const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const sleepIds = useMemo(() => getSleepActivityIds(activities), [activities]);
 
-  const coverage = useMemo(() => getCoverage(dayBlocks.map((b) => ({ ...b })), [dateKey], now), [dayBlocks, dateKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // timer-only blocks count as tracked here too, so Tracked matches the tiles and the profile below
+  const timerOnly = useMemo(() => timerOnlyBlocks(focusSessions, dayBlocks, dateKey, elapsed), [focusSessions, dayBlocks, dateKey, elapsed]);
+  const coverage = useMemo(() => getCoverage(dayBlocks.map((b) => ({ ...b })), [dateKey], now, { [dateKey]: timerOnly }), [dayBlocks, dateKey, now, timerOnly]);
   const summary = useMemo(() => getDistribution(dayBlocks.filter((b) => b.block_index < elapsed), activities, sleepIds, coverage), [dayBlocks, activities, sleepIds, coverage, elapsed]);
   const activitySummary = useMemo(() => getActivityDistribution(dayBlocks.filter((b) => b.block_index < elapsed), activities, coverage), [dayBlocks, activities, coverage, elapsed]);
   const [breakdownBy, setBreakdownBy] = useState<'category' | 'activity'>('category');
@@ -76,7 +80,8 @@ export const DayView: React.FC<DayViewProps> = ({ selectedDate, blocks, activiti
   );
   const daySummary = useMemo(() => summarize([profile]), [profile]);
   const switches = profile.switches;
-  const focused = getFocusByDate(focusSessions)[dateKey] || 0;
+  const focusByDate = useMemo(() => getFocusByDate(focusSessions), [focusSessions]);
+  const focused = focusByDate[dateKey] || 0;
 
   // Z1: generated answers
   const completedToday = useMemo(
@@ -88,7 +93,7 @@ export const DayView: React.FC<DayViewProps> = ({ selectedDate, blocks, activiti
     [tasks, dateKey]
   );
   const topConsumer = summary.find((r) => r.category !== 'Untracked' && r.category !== 'Sleep') ?? null;
-  const hasMultipliers = activities.some((a) => !!a.productivity_multiplier);
+  const hasMultipliers = hasProductivityMultipliers(activities);
   const takeaways = useMemo(() => {
     // the biggest waste activity of the day, from the per-activity rows already computed for the donut
     const topWaste = activitySummary

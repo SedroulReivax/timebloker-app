@@ -172,7 +172,38 @@ export const scoreDay = (
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// Walking every block of every session ever recorded is the same work for every view on a screen, so the result is
+// kept per sessions array (a new array from state is a new key). Callers only read the returned map.
+const sessionBlocksCache = new WeakMap<FocusSession[], Map<string, Set<number>>>();
+
 export const sessionBlocksByDay = (sessions: FocusSession[]): Map<string, Set<number>> => {
+  const cached = sessionBlocksCache.get(sessions);
+  if (cached) return cached;
+  const map = computeSessionBlocksByDay(sessions);
+  sessionBlocksCache.set(sessions, map);
+  return map;
+};
+
+/**
+ * Blocks of one day (before `elapsed`) covered only by a focus-timer session, with nothing painted on the grid.
+ * It is time you spent that the grid does not show, so tracked time and the day's breakdown count it.
+ */
+export const timerOnlyBlocks = (
+  sessions: FocusSession[],
+  blocks: { date_key: string; block_index: number; activity_id?: string | null }[],
+  dateKey: string,
+  elapsed: number
+): Set<number> => {
+  const out = new Set<number>();
+  const timer = sessionBlocksByDay(sessions).get(dateKey);
+  if (!timer) return out;
+  const painted = new Set<number>();
+  for (const b of blocks) if (b.date_key === dateKey && b.activity_id) painted.add(b.block_index);
+  for (const i of timer) if (i < elapsed && !painted.has(i)) out.add(i);
+  return out;
+};
+
+const computeSessionBlocksByDay = (sessions: FocusSession[]): Map<string, Set<number>> => {
   const map = new Map<string, Set<number>>();
   for (const s of sessions) {
     const start = new Date(s.started_at).getTime();
