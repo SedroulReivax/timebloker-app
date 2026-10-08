@@ -132,15 +132,22 @@ export const dayPoints = (input: Input, dateKey: string, opts: Options = {}): Da
   };
 };
 
+/** Days a typical line needs before it is drawn: the same bar the Day tiles use for "vs typical". */
+export const MIN_TYPICAL_DAYS = 7;
+/** A day only counts toward "typical" when this share of its elapsed blocks has counted time (a half-logged day would drag the line down). */
+export const MIN_TYPICAL_SHARE = 1 / 6;
+
 /**
- * Your typical running total at each half hour: the median, over the given days that have any counted time, of the
- * points earned by the end of that half hour. For today, pass `cutoffBlocks` so past days stop at the same time.
- * Null where no day reaches (after the cutoff) or with no counted days.
+ * Your typical running total at each half hour: the median, over the given days that were tracked well enough, of the
+ * points earned by the end of that half hour. A day is tracked well enough with counted time on at least
+ * MIN_TYPICAL_SHARE of its elapsed blocks, and the line needs MIN_TYPICAL_DAYS such days. For today, pass
+ * `cutoffBlocks` so past days stop at the same time. Null where no day reaches (after the cutoff) or with too few days.
  */
 export const typicalCumulativePoints = (input: Input, dateKeys: string[], opts: Options = {}): (number | null)[] => {
   const { mult, skip } = setup(input);
   const keys = new Set(dateKeys);
   const perDay = new Map<string, number[]>();
+  const countedBlocks = new Map<string, number>();
   // each day's cut-off is the same for every one of its blocks, so work it out once per day
   const now = opts.now ?? new Date();
   const limits = new Map<string, number>();
@@ -149,8 +156,12 @@ export const typicalCumulativePoints = (input: Input, dateKeys: string[], opts: 
     if (!keys.has(b.date_key) || b.block_index >= limitOf(b.date_key) || !b.activity_id || skip.has(b.activity_id)) continue;
     const arr = perDay.get(b.date_key) ?? perDay.set(b.date_key, new Array(SLOT_COUNT).fill(0)).get(b.date_key)!;
     arr[Math.floor(b.block_index / 3)] += 10 * (mult.get(b.activity_id) ?? 0);
+    countedBlocks.set(b.date_key, (countedBlocks.get(b.date_key) ?? 0) + 1);
   }
-  if (perDay.size === 0) return new Array(SLOT_COUNT).fill(null);
+  for (const k of [...perDay.keys()]) {
+    if ((countedBlocks.get(k) ?? 0) < limitOf(k) * MIN_TYPICAL_SHARE) perDay.delete(k);
+  }
+  if (perDay.size < MIN_TYPICAL_DAYS) return new Array(SLOT_COUNT).fill(null);
   const lastSlot = opts.cutoffBlocks !== undefined ? Math.ceil(Math.min(opts.cutoffBlocks, 144) / 3) - 1 : SLOT_COUNT - 1;
   const running = [...perDay.values()].map((arr) => {
     let r = 0;

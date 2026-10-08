@@ -502,12 +502,16 @@ export const bucketDailySeries = (series: DailyPoint[], weekly: boolean): ChartP
   }
   return order.map((wk) => {
     const pts = buckets.get(wk)!;
+    // "per tracked day": a day nothing was logged on is a logging gap, not a day of zero, so it stays out of every
+    // average (the other fields already skip days without enough data)
+    const tracked = pts.filter((p) => p.trackedMinutes > 0);
+    const avgOver = (f: (p: DailyPoint) => number) => (tracked.length ? Math.round(tracked.reduce((s, p) => s + f(p), 0) / tracked.length) : 0);
     return {
       dateKey: wk,
       label: format(parseISO(wk), 'd MMM'),
-      trackedMinutes: Math.round(pts.reduce((s, p) => s + p.trackedMinutes, 0) / pts.length),
-      deepMinutes: Math.round(pts.reduce((s, p) => s + p.deepMinutes, 0) / pts.length),
-      coveragePct: Math.round(pts.reduce((s, p) => s + p.coveragePct, 0) / pts.length),
+      trackedMinutes: avgOver((p) => p.trackedMinutes),
+      deepMinutes: avgOver((p) => p.deepMinutes),
+      coveragePct: avgOver((p) => p.coveragePct),
       focusQualityPct: avgOrNull(pts.map((p) => p.focusQualityPct)),
       productivityScore: avgOrNull(pts.map((p) => p.productivityScore)),
       wasteMinutes: avgOrNull(pts.map((p) => p.wasteMinutes)),

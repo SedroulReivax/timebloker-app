@@ -128,3 +128,28 @@ describe('goalMomentum', () => {
     expect(goalMomentum({ currentWeekly: 3, lastWeek: 3, weeklyHistory: [3, 3], stalledDays: 0 }).state).toBe('too-early');
   });
 });
+
+describe('funnel and linked time stay consistent', () => {
+  it('the completed stage never converts above 100%, even when most completed tasks have no time linked', () => {
+    // 6 tasks have time linked (2 of them done); 30 others are done without any
+    const linkedTasks = Array.from({ length: 6 }, (_, i) => task(`l${i}`, { completed: i < 2, completed_at: i < 2 ? iso(21) : null }));
+    const others = Array.from({ length: 30 }, (_, i) => task(`o${i}`, { completed: true, completed_at: iso(21) }));
+    const linked = linkedMinutesByTask(linkedTasks.map((t) => ({ task_id: t.id })), []);
+    const completed = taskFunnel([...linkedTasks, ...others], linked).find((x) => x.key === 'completed')!;
+    expect(completed.count).toBe(2);
+    expect(completed.conversion!.pct).toBeCloseTo(33.3, 0);
+    expect(completed.note).toMatch(/32 tasks are completed in total/);
+  });
+
+  it('a task tracked in blocks and also timed counts its time once (the larger of the two views)', () => {
+    const m = linkedMinutesByTask([{ task_id: 'a' }, { task_id: 'a' }], [{ task_id: 'a', duration_minutes: 20 }, { task_id: 'b', duration_minutes: 25 }]);
+    expect(m.get('a')).toBe(20); // two 10-minute blocks and a 20-minute timer are the same work
+    expect(m.get('b')).toBe(25); // timer only
+    expect(linkedMinutesByTask([{ task_id: 'c' }, { task_id: 'c' }, { task_id: 'c' }], [{ task_id: 'c', duration_minutes: 20 }]).get('c')).toBe(30);
+  });
+
+  it('a goal with no time in the window is too early to judge, not "steady"', () => {
+    const m = goalMomentum({ weeklyHistory: [0, 0, 0, 0], stalledDays: null, currentWeekly: 0, lastWeek: 0 } as never);
+    expect(m.state).toBe('too-early');
+  });
+});

@@ -321,7 +321,9 @@ export function useSupabaseSync(session: any, selectedDate: Date) {
   // goal and settings edits made on another device without streaming those tables.
   useEffect(() => {
     if (!userId) return;
-    const STALE_AFTER_HIDDEN_MS = 30_000;
+    // Tasks and blocks arrive live over Realtime, so this only has to pick up habit, sleep, goal and settings edits from
+    // another device. Five minutes keeps a quick alt-tab from re-downloading every table (about ten requests).
+    const STALE_AFTER_HIDDEN_MS = 5 * 60_000;
     let hiddenAt = 0;
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {

@@ -564,8 +564,8 @@ export const describePeakContext = (
 ): string[] => {
   const out: string[] = [];
   if (sleep.wakeClockMin !== null) {
-    const after = (((w.startMin - sleep.wakeClockMin) % 1440) + 1440) % 1440;
-    const h = Math.floor(after / 60), m = Math.round(after % 60);
+    const after = Math.round((((w.startMin - sleep.wakeClockMin) % 1440) + 1440) % 1440);
+    const h = Math.floor(after / 60), m = after % 60;
     out.push(`Starts about ${h > 0 ? `${h}h ` : ''}${m ? `${m}m ` : ''}after you usually wake (${formatMinuteOfDay(sleep.wakeClockMin)}).`);
   }
   if (sleep.chronotypeLabel && sleep.midpointClockMin !== null) {

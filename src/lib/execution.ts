@@ -58,11 +58,14 @@ export const taskFunnel = (tasks: ExecTask[], linkedMinutes: Map<string, number>
   const created = tasks.length;
   const scheduled = tasks.filter((t) => !!t.date_key).length;
   const linkedTasks = tasks.filter((t) => (linkedMinutes.get(t.id) ?? 0) > 0).length;
-  const completed = tasks.filter((t) => t.completed).length;
+  const completedAll = tasks.filter((t) => t.completed).length;
+  // Conversion needs a numerator drawn from the same base: of the tasks that reached the previous stage, how many were
+  // completed. (All completed tasks over only the time-linked ones could pass 100%.)
+  const workedMeasurable = linkedTasks >= MIN_LINKED_TASKS;
+  const completed = tasks.filter((t) => t.completed && (workedMeasurable ? (linkedMinutes.get(t.id) ?? 0) > 0 : !!t.date_key)).length;
   const timed = tasks.filter((t) => t.completed && t.deadline && t.completed_at);
   const onTime = timed.filter((t) => new Date(t.completed_at!).getTime() <= dueAtOf(t.deadline!).getTime()).length;
 
-  const workedMeasurable = linkedTasks >= MIN_LINKED_TASKS;
   return [
     { key: 'created', label: 'Created', count: created, conversion: null, measurable: true },
     {
@@ -77,7 +80,7 @@ export const taskFunnel = (tasks: ExecTask[], linkedMinutes: Map<string, number>
     {
       key: 'completed', label: 'Completed', count: completed,
       conversion: rate(completed, workedMeasurable ? linkedTasks : scheduled), measurable: true,
-      note: workedMeasurable ? undefined : 'Measured against tasks given a day, since the "worked on" stage is not measurable yet.',
+      note: [workedMeasurable ? undefined : 'Measured against tasks given a day, since the "worked on" stage is not measurable yet.', completed !== completedAll ? `${completedAll} tasks are completed in total; the rest had no time linked.` : undefined].filter(Boolean).join(' ') || undefined,
     },
     {
       key: 'onTime', label: 'Done by the deadline', count: onTime, conversion: timed.length ? rate(onTime, timed.length) : null,
@@ -89,14 +92,20 @@ export const taskFunnel = (tasks: ExecTask[], linkedMinutes: Map<string, number>
   ];
 };
 
-/** Tracked + timer minutes per task. Blocks are 10 minutes each; timer sessions count their own duration. */
+/**
+ * Minutes per task from the larger of two views of the same work: tracked blocks (10 minutes each) and timer sessions
+ * (their own duration). A timed session is usually also painted on the grid, so adding them would count it twice.
+ */
 export const linkedMinutesByTask = (
   taskBlocks: { task_id: string }[],
   sessions: { task_id?: string | null; duration_minutes: number }[],
 ): Map<string, number> => {
+  const blocks = new Map<string, number>();
+  const timer = new Map<string, number>();
+  for (const b of taskBlocks) blocks.set(b.task_id, (blocks.get(b.task_id) ?? 0) + 10);
+  for (const s of sessions) if (s.task_id) timer.set(s.task_id, (timer.get(s.task_id) ?? 0) + (s.duration_minutes || 0));
   const m = new Map<string, number>();
-  for (const b of taskBlocks) m.set(b.task_id, (m.get(b.task_id) ?? 0) + 10);
-  for (const s of sessions) if (s.task_id) m.set(s.task_id, (m.get(s.task_id) ?? 0) + (s.duration_minutes || 0));
+  for (const id of new Set([...blocks.keys(), ...timer.keys()])) m.set(id, Math.max(blocks.get(id) ?? 0, timer.get(id) ?? 0));
   return m;
 };
 
@@ -312,7 +321,7 @@ export const goalMomentum = (pace: { currentWeekly: number; lastWeek: number; we
   else if (slope === null) state = 'too-early';
   else {
     const rel = slope / Math.max(med ?? 0, 0.5);
-    state = rel >= 0.15 ? 'accelerating' : rel <= -0.15 ? 'slowing' : 'steady';
+    state = h.every((v) => v === 0) ? 'too-early' : rel >= 0.15 ? 'accelerating' : rel <= -0.15 ? 'slowing' : 'steady';
   }
   return { state, velocity: pace.currentWeekly, lastWeek: pace.lastWeek, accelerationPerWeek: slope, volatility, weeks: h.length };
 };

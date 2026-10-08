@@ -166,7 +166,7 @@ export const computeHabitStats = (habit: HabitLike, logs: HabitLogLike[], now: D
   }
   // Strength over all due days since the start: score = score * m + checked * (1 - m), m = 0.5^(sqrt(f) / 13)
   // where f is the expected completions per day (about a two-week half-life for a daily habit).
-  const freq = frequencyOf(habit) === 'weekdays' ? Math.max(1, (habit.weekdays?.length ?? 7)) / 7 : 1;
+  const freq = frequencyOf(habit) === 'weekdays' ? (habit.weekdays?.length || 7) / 7 : 1;
   const mD = Math.pow(0.5, Math.sqrt(freq) / 13);
   let strength = 0, opportunities = 0;
   for (let i = 0; i <= totalDays; i++) {

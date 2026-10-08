@@ -67,17 +67,35 @@ describe('dayPoints', () => {
 });
 
 describe('typicalCumulativePoints', () => {
+  const days = ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'];
+
   it('takes the median running total across counted days, cut at the same time', () => {
-    const days = ['2026-09-25', '2026-09-26', '2026-09-27'];
     const blocks = [
       ...run(days[0], 0, 2, 'code'), // +60 in slot 0
       ...run(days[1], 0, 2, 'read'), // +15 in slot 0
       ...run(days[2], 0, 2, 'scroll'), ...run(days[2], 3, 5, 'code'), // -30 then +60
+      ...run(days[3], 0, 2, 'code'),
+      ...run(days[4], 0, 2, 'read'),
+      ...run(days[5], 0, 2, 'read'),
+      ...run(days[6], 0, 2, 'code'),
     ];
     const t = typicalCumulativePoints(input(blocks), days, { now: NOW, cutoffBlocks: 6 });
-    expect(t[0]).toBe(15); // median of 60, 15, -30
-    expect(t[1]).toBe(30); // median of 60, 15, 30
+    expect(t[0]).toBe(15); // median of 60, 15, -30, 60, 15, 15, 60
+    expect(t[1]).toBe(30); // median of 60, 15, 30, 60, 15, 15, 60
     expect(t[2]).toBeNull(); // past the cutoff
+  });
+
+  it('needs 7 usable days before it draws a line (like the Day tiles), not a "typical" from one or two', () => {
+    const blocks = days.slice(0, 6).flatMap((d) => run(d, 0, 2, 'code'));
+    expect(typicalCumulativePoints(input(blocks), days, { now: NOW, cutoffBlocks: 6 }).every((v) => v === null)).toBe(true);
+  });
+
+  it('ignores a day that is barely tracked, so a half-logged day does not drag the line down', () => {
+    // a full-day view needs a sixth of 144 blocks counted; six days have it, the seventh has a single block
+    const blocks = [...days.slice(0, 6).flatMap((d) => run(d, 0, 29, 'code')), ...run(days[6], 0, 0, 'code')];
+    expect(typicalCumulativePoints(input(blocks), days, { now: NOW }).every((v) => v === null)).toBe(true); // 6 usable days: not enough
+    const seven = [...days.slice(0, 6).flatMap((d) => run(d, 0, 29, 'code')), ...run(days[6], 0, 29, 'code')];
+    expect(typicalCumulativePoints(input(seven), days, { now: NOW })[0]).toBe(60);
   });
 
   it('is all null with no counted days', () => {

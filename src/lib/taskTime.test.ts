@@ -55,3 +55,12 @@ describe('formatMinutes', () => {
     expect([formatMinutes(0), formatMinutes(25), formatMinutes(60), formatMinutes(100)]).toEqual(['0m', '25m', '1h', '1h 40m']);
   });
 });
+
+describe('formatMinutes rounding', () => {
+  it('rounds before splitting into hours and minutes, so it never prints 60m', () => {
+    expect(formatMinutes(119.6)).toBe('2h');
+    expect(formatMinutes(59.6)).toBe('1h');
+    expect(formatMinutes(90)).toBe('1h 30m');
+    expect(formatMinutes(0)).toBe('0m');
+  });
+});

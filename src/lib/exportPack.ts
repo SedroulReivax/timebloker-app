@@ -12,7 +12,7 @@ import { blindSpots, getFocusByDate, loggingGaps } from './insights';
 import { analyzeSleepEffects } from './sleepEffects';
 import { getSleepActivityIds } from './sleepActivity';
 import { buildNights, getBaseline, getFactorImpacts, relToClock, scoreNight } from './sleepAnalysis';
-import { getEstimatedMinutes } from './taskTime';
+import { getEstimatedMinutes, getExplicitEstimateMinutes } from './taskTime';
 import { analyzeWaste, CONTEXT_GAP, CONTEXT_START, CONTEXT_WAKE } from './waste';
 
 /**
@@ -509,7 +509,7 @@ export const buildExportData = (input: ExportInput, fromKey: string, toKey: stri
 
   const taskLines: string[] = [];
   if (inc.tasks) {
-    const est = estimationAccuracy(input.tasks.map((t) => ({ id: t.id, completed: t.completed, estimatedMinutes: getEstimatedMinutes(t), trackedMinutes: (input.taskBlocks.filter((b) => b.task_id === t.id).length) * 10, group: actName(t.activity_id) || 'No activity' })));
+    const est = estimationAccuracy(input.tasks.map((t) => ({ id: t.id, completed: t.completed, estimatedMinutes: getExplicitEstimateMinutes(t), trackedMinutes: (input.taskBlocks.filter((b) => b.task_id === t.id).length) * 10, group: actName(t.activity_id) || 'No activity' })));
     if (est.overall?.multiplier) taskLines.push(`Tasks take ${r2(est.overall.multiplier)}x their estimate (80% interval ${r2(est.overall.lo)}-${r2(est.overall.hi)}x, ${est.overall.n} tasks); ${est.overall.overPct}% ran over.`);
     const rel = deadlineReliability(input.tasks.filter((t) => t.completed && t.deadline && t.completed_at).map((t) => ({
       dueAt: isDateOnlyDeadline(t.deadline!) ? new Date(`${getDeadlineDateKey(t.deadline!)}T23:59:59`) : new Date(t.deadline!),

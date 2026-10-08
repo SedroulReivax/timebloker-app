@@ -76,8 +76,9 @@ export const summarizeTaskTime = (
 
 /** "1h 40m" / "25m" / "0m". */
 export const formatMinutes = (minutes: number): string => {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  const whole = Math.round(minutes); // round first, so 119.6 is 2h and not "1h 60m"
+  const h = Math.floor(whole / 60);
+  const m = whole % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 };

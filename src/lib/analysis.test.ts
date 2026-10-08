@@ -400,3 +400,14 @@ describe('productivityCurve: the focus curve from your multipliers', () => {
     expect(c[20].pointsPerDay).toBe(10);
   });
 });
+
+describe('bucketDailySeries weekly averages', () => {
+  it('average over tracked days only, so logging gaps are not days of zero', () => {
+    // Mon-Wed tracked 4h each, Thu-Sun nothing logged
+    const blocks = [...run('2026-09-21', 54, 77, 'w1'), ...run('2026-09-22', 54, 77, 'w1'), ...run('2026-09-23', 54, 77, 'w1')];
+    const keys = ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-27'];
+    const profiles = profileDays(input(blocks), keys, { now: NOW });
+    const [week] = bucketDailySeries(dailySeries(profiles), true);
+    expect(week.trackedMinutes).toBe(240); // was 103 when the four empty days were averaged in
+  });
+});

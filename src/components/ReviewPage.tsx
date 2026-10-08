@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { addMonths, addWeeks, format, parseISO } from 'date-fns';
+import { addMonths, addWeeks, format, parseISO, subDays } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart,
@@ -79,7 +79,10 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
   const { current, previous } = useMemo(() => getReviewWindows(period, anchor), [period, anchor]);
   const periodKey = reviewPeriodKey(period, anchor);
 
-  const { blocks, loading: blocksLoading } = useBlockRange(previous.startKey, current.endKey, liveBlocks);
+  // one day earlier than the window: the night that ends on its first morning starts the evening before, and without those
+  // blocks that night would count only its after-midnight part
+  const blockStart = useMemo(() => format(subDays(parseISO(previous.startKey), 1), 'yyyy-MM-dd'), [previous.startKey]);
+  const { blocks, loading: blocksLoading } = useBlockRange(blockStart, current.endKey, liveBlocks);
   const sleepIds = useMemo(() => getSleepActivityIds(activities), [activities]);
 
   const { rows: dailyRows, loading: dailyLoading } = useDailyAnalyticsRange(previous.startKey, current.endKey);

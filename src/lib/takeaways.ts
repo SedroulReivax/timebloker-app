@@ -235,7 +235,7 @@ export const executionTakeaways = (e: ExecutionTakeawayInput): Takeaway[] => {
     weakest && { text: `The biggest drop-off is at "${lower(weakest.label)}": ${weakest.pct}% get there.`, to: 'exec-funnel' },
     unmeasured && { text: `"${unmeasured.label}" can't be measured yet${unmeasured.note ? ` (${lower(unmeasured.note)})` : ''}.`, to: 'exec-funnel' },
     e.medianHoursToDone !== null && {
-      text: `A task typically takes ${e.medianHoursToDone < 24 ? `${Math.round(e.medianHoursToDone)} hours` : `${(e.medianHoursToDone / 24).toFixed(1)} days`} from created to done.`,
+      text: `A task typically takes ${e.medianHoursToDone < 1 ? `${Math.max(1, Math.round(e.medianHoursToDone * 60))} minutes` : e.medianHoursToDone < 10 ? `${e.medianHoursToDone.toFixed(1)} hours` : e.medianHoursToDone < 24 ? `${Math.round(e.medianHoursToDone)} hours` : `${(e.medianHoursToDone / 24).toFixed(1)} days`} from created to done.`,
       to: 'exec-done',
     },
     e.stalledGoals.length > 0 && { text: `Stalled: ${e.stalledGoals.join(', ')}.`, to: 'exec-goals' },
