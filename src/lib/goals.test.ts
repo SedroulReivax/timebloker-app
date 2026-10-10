@@ -189,6 +189,16 @@ describe('activity link ranges', () => {
     expect(merged).toEqual([{ date_key: '2026-09-22', minutes: 0 }]);
   });
 
+  it('hours from an unlinked activity are kept when nothing is linked any more', () => {
+    const gg = g({ study: { until: '2026-09-20' } }, []);
+    expect(getGoalHours(gg, [{ date_key: '2026-09-05', minutes: 120 }])).toBe(2);
+  });
+
+  it('malformed range dates are ignored, like goal_safe_date in SQL', () => {
+    expect(activityCountsOn(g({ study: { since: 'banana' } }), 'study', '2026-09-05')).toBe(true);
+    expect(activityCountsOn(g({ study: { until: '2026-13-45' } }, []), 'study', '2026-09-05')).toBe(false);
+  });
+
   it('applyActivityLinkChange: link starts today, unlink ends today, relink resumes', () => {
     const linked = applyActivityLinkChange(goal, ['study', 'math'], '2026-09-22');
     expect(linked.math).toEqual({ since: '2026-09-22', until: null });

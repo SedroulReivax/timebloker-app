@@ -256,6 +256,7 @@ export const FocusMode: React.FC<FocusModeProps> = ({ goals, tasks, activities, 
               {fillActivity
                 ? <span>Fills today's grid with <strong className="text-foreground font-medium">{fillActivity.name}</strong> as you go{filledCount > 0 ? ` · ${filledCount} block${filledCount === 1 ? '' : 's'} so far` : ''}</span>
                 : <span>This task has no activity, so the grid isn't filled. Give it one, or focus on an activity.</span>}
+              {target.kind === 'goal' && !chosen && <span className="text-amber-600 dark:text-amber-400"> · This goal is no longer active or no longer links this activity, so new time won't count toward it.</span>}
             </p>
           )}
         </div>

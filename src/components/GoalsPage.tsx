@@ -346,7 +346,7 @@ export function GoalsPage({
                           selectedActivities={editActivities} selectedHabits={editHabits}
                           onActivities={setEditActivities} onHabits={setEditHabits}
                         />
-                        <p className="text-xs text-muted-foreground">New activities count from today. Unlinked ones keep the hours they already added.</p>
+                        <p className="text-xs text-muted-foreground">New activities count from today. Unlinked ones keep the hours they already added. Habits are counted from the day the goal started.</p>
                       </div>
                       <DialogFooter>
                         <Button onClick={() => handleEditSubmit(goal)} className="min-h-[44px]">Save links</Button>

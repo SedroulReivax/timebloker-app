@@ -85,12 +85,23 @@ export type GoalActivityRanges = Record<string, { since?: string | null; until?:
 /** Does a block of this activity on this date count toward the goal? Linked now, or unlinked (has an `until`) with the date inside its range. */
 export function activityCountsOn(goal: GoalLike, activityId: string, dateKey: string): boolean {
   const range = goal.linked_activity_ranges?.[activityId];
+  const since = validDateKey(range?.since);
+  const until = validDateKey(range?.until);
   const linked = (goal.linked_activity_ids ?? []).includes(activityId);
-  if (!linked && !range?.until) return false;
-  if (range?.since && dateKey < range.since) return false;
-  if (range?.until && dateKey > range.until) return false;
+  if (!linked && !until) return false;
+  if (since && dateKey < since) return false;
+  if (until && dateKey > until) return false;
   return true;
 }
+
+// Like goal_safe_date in SQL: anything that is not a real yyyy-MM-dd date counts as "not set"
+const validDateKey = (v: string | null | undefined): string | null =>
+  v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z')) && new Date(v + 'T00:00:00Z').toISOString().startsWith(v) ? v : null;
+
+/** True when any activity is linked now or was linked earlier (unlinked ones keep their past days). */
+const hasCountedActivities = (goal: GoalLike): boolean =>
+  (goal.linked_activity_ids ?? []).length > 0 ||
+  Object.values(goal.linked_activity_ranges ?? {}).some((r) => !!validDateKey(r?.until));
 
 /** New ranges after the linked-activity set changes: newly linked start counting today, unlinked stop after today. */
 export const applyActivityLinkChange = (goal: GoalLike, nextIds: string[], todayKey: string): GoalActivityRanges => {
@@ -120,7 +131,7 @@ export const goalEndKey = (g: GoalLike): string | null =>
 
 /** Hours logged on the goal's linked activities from its start date (to its close date when closed). */
 export const getGoalHours = (goal: GoalLike, daily: GoalDayMinutes[]): number => {
-  if ((goal.linked_activity_ids ?? []).length === 0) return 0;
+  if (!hasCountedActivities(goal)) return 0;
   const start = goalStartKey(goal);
   const end = goalEndKey(goal);
   let minutes = 0;
