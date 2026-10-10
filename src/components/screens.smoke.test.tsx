@@ -465,7 +465,7 @@ describe('Focus page', () => {
     const tasks = [{ id: 't1', title: 'Write report', completed: false, activity_id: workActivity.id }];
     const out = html(
       <FocusSessionProvider userId="u" tasks={tasks} activities={[workActivity]} assignBlocksOn={NOOP} logFocusSession={NOOP}>
-        <FocusMode tasks={tasks} activities={[workActivity]} focusSessions={[]} />
+        <FocusMode goals={[]} tasks={tasks} activities={[workActivity]} focusSessions={[]} />
         <FocusPill onOpen={NOOP} />
       </FocusSessionProvider>
     );

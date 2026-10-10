@@ -551,6 +551,7 @@ export type Database = {
           emoji: string | null
           id: string
           linked_activity_ids: string[] | null
+          linked_activity_ranges: Json
           linked_habit_ids: string[] | null
           status: string | null
           target_date: string | null
@@ -566,6 +567,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           linked_activity_ids?: string[] | null
+          linked_activity_ranges?: Json
           linked_habit_ids?: string[] | null
           status?: string | null
           target_date?: string | null
@@ -581,6 +583,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           linked_activity_ids?: string[] | null
+          linked_activity_ranges?: Json
           linked_habit_ids?: string[] | null
           status?: string | null
           target_date?: string | null

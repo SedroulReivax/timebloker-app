@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Target, Plus, CheckCircle, XCircle, Trash2, Calendar, Repeat, ChevronDown } from 'lucide-react';
+import { Target, Plus, CheckCircle, XCircle, Trash2, Calendar, Repeat, ChevronDown, Link2 } from 'lucide-react';
 import { differenceInDays, format, parseISO } from 'date-fns';
 import { useGoalAnalyticsRange } from '../hooks/useAnalyticsRange';
-import { getGoalHabitProgress, getGoalPace, getGoalReview, goalStartKey, groupGoalDailyRows, mergeGoalDailyLive, type GoalDayMinutes } from '../lib/goals';
+import { applyActivityLinkChange, getGoalHabitProgress, getGoalPace, getGoalReview, goalStartKey, groupGoalDailyRows, mergeGoalDailyLive, type GoalDayMinutes } from '../lib/goals';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './ui/dialog';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -23,6 +23,49 @@ interface GoalsPageProps {
   onAbandonGoal: (goalId: string) => void;
 }
 
+interface LinkPickerProps {
+  activities: any[];
+  habits: any[];
+  selectedActivities: string[];
+  selectedHabits: string[];
+  onActivities: (ids: string[]) => void;
+  onHabits: (ids: string[]) => void;
+}
+
+const toggleId = (ids: string[], id: string, on: boolean) => (on ? [...ids, id] : ids.filter((x) => x !== id));
+
+/** The activity and habit checkbox lists, shared by the create and edit-links dialogs. */
+function LinkPicker({ activities, habits, selectedActivities, selectedHabits, onActivities, onHabits }: LinkPickerProps) {
+  return (
+    <>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-2 block">Linked Activities</label>
+        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
+          {activities.filter((a) => !a.archived || selectedActivities.includes(a.id)).map((a) => (
+            <label key={a.id} className="flex items-center gap-2 p-2 border border-border rounded-md cursor-pointer hover:bg-muted min-w-[120px]">
+              <input type="checkbox" checked={selectedActivities.includes(a.id)} onChange={(e) => onActivities(toggleId(selectedActivities, a.id, e.target.checked))} />
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: a.color }}></div>
+              <span className="text-sm truncate">{a.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-medium text-muted-foreground mb-2 block">Linked Habits</label>
+        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
+          {habits.map((h) => (
+            <label key={h.id} className="flex items-center gap-2 p-2 border border-border rounded-md cursor-pointer hover:bg-muted min-w-[120px]">
+              <input type="checkbox" checked={selectedHabits.includes(h.id)} onChange={(e) => onHabits(toggleId(selectedHabits, h.id, e.target.checked))} />
+              <span className="text-sm truncate">{h.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function GoalsPage({
   goals,
   activities,
@@ -30,7 +73,7 @@ export function GoalsPage({
   blocks,
   habitLogs,
   onAddGoal,
-  onUpdateGoal: _onUpdateGoal,
+  onUpdateGoal,
   onDeleteGoal,
   onCompleteGoal,
   onAbandonGoal
@@ -83,6 +126,24 @@ export function GoalsPage({
     setNewEmoji('🎯');
     setSelectedActivities([]);
     setSelectedHabits([]);
+  };
+
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [editActivities, setEditActivities] = useState<string[]>([]);
+  const [editHabits, setEditHabits] = useState<string[]>([]);
+  const openEditLinks = (goal: any) => {
+    setEditActivities(goal.linked_activity_ids ?? []);
+    setEditHabits(goal.linked_habit_ids ?? []);
+    setEditingGoalId(goal.id);
+  };
+  // Newly linked activities start counting today and unlinked ones stop after today (applyActivityLinkChange)
+  const handleEditSubmit = (goal: any) => {
+    onUpdateGoal(goal.id, {
+      linked_activity_ids: editActivities,
+      linked_activity_ranges: applyActivityLinkChange(goal, editActivities, format(new Date(), 'yyyy-MM-dd')),
+      linked_habit_ids: editHabits,
+    });
+    setEditingGoalId(null);
   };
 
   const handleCompleteSubmit = () => {
@@ -148,44 +209,11 @@ export function GoalsPage({
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">Linked Activities</label>
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
-                  {activities.filter(a => !a.archived).map(a => (
-                    <label key={a.id} className="flex items-center gap-2 p-2 border border-border rounded-md cursor-pointer hover:bg-muted min-w-[120px]">
-                      <input
-                        type="checkbox"
-                        checked={selectedActivities.includes(a.id)}
-                        onChange={e => {
-                          if (e.target.checked) setSelectedActivities([...selectedActivities, a.id]);
-                          else setSelectedActivities(selectedActivities.filter(id => id !== a.id));
-                        }}
-                      />
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: a.color }}></div>
-                      <span className="text-sm truncate">{a.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">Linked Habits</label>
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
-                  {habits.map(h => (
-                    <label key={h.id} className="flex items-center gap-2 p-2 border border-border rounded-md cursor-pointer hover:bg-muted min-w-[120px]">
-                      <input
-                        type="checkbox"
-                        checked={selectedHabits.includes(h.id)}
-                        onChange={e => {
-                          if (e.target.checked) setSelectedHabits([...selectedHabits, h.id]);
-                          else setSelectedHabits(selectedHabits.filter(id => id !== h.id));
-                        }}
-                      />
-                      <span className="text-sm truncate">{h.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <LinkPicker
+                activities={activities} habits={habits}
+                selectedActivities={selectedActivities} selectedHabits={selectedHabits}
+                onActivities={setSelectedActivities} onHabits={setSelectedHabits}
+              />
             </div>
             <DialogFooter>
               <Button onClick={handleAddSubmit} disabled={!newTitle.trim()} className="min-h-[44px]">Save Goal</Button>
@@ -302,6 +330,30 @@ export function GoalsPage({
                 </div>}
 
                 <div className="flex gap-2 mt-4 pt-3 border-t border-border">
+                  <Dialog open={editingGoalId === goal.id} onOpenChange={(o) => !o && setEditingGoalId(null)}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" className="min-h-[44px] px-3 text-muted-foreground" aria-label="Edit links" title="Edit linked activities and habits" onClick={() => openEditLinks(goal)}>
+                        <Link2 className="w-4 h-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[500px]">
+                      <DialogHeader>
+                        <DialogTitle>Edit links · {goal.title}</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <LinkPicker
+                          activities={activities} habits={habits}
+                          selectedActivities={editActivities} selectedHabits={editHabits}
+                          onActivities={setEditActivities} onHabits={setEditHabits}
+                        />
+                        <p className="text-xs text-muted-foreground">New activities count from today. Unlinked ones keep the hours they already added.</p>
+                      </div>
+                      <DialogFooter>
+                        <Button onClick={() => handleEditSubmit(goal)} className="min-h-[44px]">Save links</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
                   <Dialog open={completingGoalId === goal.id} onOpenChange={(open) => !open && setCompletingGoalId(null)}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="flex-1 min-h-[44px] text-green-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950" onClick={() => setCompletingGoalId(goal.id)}>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { format } from 'date-fns';
-import { dailyMinutesFromBlocks as dailyFromBlocks, getGoalHabitProgress, getGoalHours, getGoalPace, getGoalReview, goalEndKey, goalStartKey, groupGoalDailyRows, mergeGoalDailyLive, type GoalDayMinutes } from './goals';
+import { activityCountsOn, applyActivityLinkChange, dailyMinutesFromBlocks as dailyFromBlocks, getGoalHabitProgress, getGoalHours, getGoalPace, getGoalReview, goalEndKey, goalStartKey, groupGoalDailyRows, mergeGoalDailyLive, type GoalDayMinutes } from './goals';
 import type { RangeBlock } from './blockRange';
 
 const now = new Date(2026, 8, 22, 12, 0); // Tue 22 Sep 2026, 72 blocks elapsed today
@@ -158,5 +158,44 @@ describe('habits and review', () => {
     const r = getGoalReview(done, dailyFromBlocks(done, [blk('2026-09-10', 1)], now), [], now);
     expect(r).toMatchObject({ startKey: '2026-09-01', endKey: '2026-09-20', plannedHours: 50 });
     expect(r.actualHours).toBeCloseTo(10 / 60);
+  });
+});
+
+describe('activity link ranges', () => {
+  const g = (ranges: any, ids = ['study']) => ({ ...goal, linked_activity_ids: ids, linked_activity_ranges: ranges });
+
+  it('counts the whole life when there is no range entry (legacy goals)', () => {
+    expect(activityCountsOn(goal, 'study', '2026-09-02')).toBe(true);
+    expect(activityCountsOn(goal, 'other', '2026-09-02')).toBe(false);
+  });
+
+  it('a newly linked activity counts only from its since date', () => {
+    const gg = g({ study: { since: '2026-09-20' } });
+    expect(activityCountsOn(gg, 'study', '2026-09-19')).toBe(false);
+    expect(activityCountsOn(gg, 'study', '2026-09-20')).toBe(true);
+  });
+
+  it('an unlinked activity keeps its past days through until, then stops', () => {
+    const gg = g({ study: { until: '2026-09-20' } }, []);
+    expect(activityCountsOn(gg, 'study', '2026-09-05')).toBe(true);
+    expect(activityCountsOn(gg, 'study', '2026-09-20')).toBe(true);
+    expect(activityCountsOn(gg, 'study', '2026-09-21')).toBe(false);
+  });
+
+  it('dailyMinutesFromBlocks and mergeGoalDailyLive respect the ranges', () => {
+    const gg = g({ study: { since: '2026-09-21' } });
+    expect(dailyFromBlocks(gg, [blk('2026-09-20', 5), blk('2026-09-21', 5)], now)).toEqual([{ date_key: '2026-09-21', minutes: 10 }]);
+    const merged = mergeGoalDailyLive([], g({ study: { since: '2026-09-23' } }), [blk('2026-09-22', 3)], now);
+    expect(merged).toEqual([{ date_key: '2026-09-22', minutes: 0 }]);
+  });
+
+  it('applyActivityLinkChange: link starts today, unlink ends today, relink resumes', () => {
+    const linked = applyActivityLinkChange(goal, ['study', 'math'], '2026-09-22');
+    expect(linked.math).toEqual({ since: '2026-09-22', until: null });
+    expect(linked.study).toBeUndefined();
+    const unlinked = applyActivityLinkChange(goal, [], '2026-09-22');
+    expect(unlinked.study).toEqual({ since: null, until: '2026-09-22' });
+    const relinked = applyActivityLinkChange({ ...goal, linked_activity_ids: [], linked_activity_ranges: unlinked }, ['study'], '2026-09-25');
+    expect(relinked.study).toEqual({ since: null, until: null });
   });
 });

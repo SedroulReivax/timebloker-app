@@ -36,7 +36,7 @@ export const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   activities: ['id', 'name', 'color', 'description', 'archived', 'created_at', 'category', 'emoji', 'is_sleep_activity', 'productivity_multiplier', 'analysis_ignored'],
   habits: ['id', 'name', 'type', 'color', 'description', 'created_at', 'frequency', 'target_count', 'weekdays'],
   tasks: ['id', 'title', 'completed', 'activity_id', 'date_key', 'urgency', 'importance', 'estimated_pomodoros', 'completed_pomodoros', 'created_at', 'description', 'deadline', 'recurrence_type', 'recurrence_rule', 'estimated_minutes', 'completed_at'],
-  goals: ['id', 'title', 'description', 'target_date', 'target_hours', 'emoji', 'status', 'linked_activity_ids', 'linked_habit_ids', 'created_at', 'updated_at', 'completion_note'],
+  goals: ['id', 'title', 'description', 'target_date', 'target_hours', 'emoji', 'status', 'linked_activity_ids', 'linked_activity_ranges', 'linked_habit_ids', 'created_at', 'updated_at', 'completion_note'],
   time_blocks: ['date_key', 'block_index', 'activity_id', 'task_id', 'notes', 'created_at'],
   habit_logs: ['id', 'habit_id', 'date_key', 'logged_at', 'notes'],
   sleep_logs: ['id', 'date_key', 'sleep_time', 'wake_time', 'total_minutes', 'quality', 'notes', 'created_at', 'energy', 'factors'],

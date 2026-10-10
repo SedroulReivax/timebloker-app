@@ -25,10 +25,9 @@ export interface GoalDayMinutes { date_key: string; minutes: number }
  * (see GoalsPage) instead of fetching raw blocks just to call this.
  */
 export const dailyMinutesFromBlocks = (goal: GoalLike, blocks: RangeBlock[], now: Date = new Date()): GoalDayMinutes[] => {
-  const ids = new Set(goal.linked_activity_ids ?? []);
   const perDay = new Map<string, Set<number>>();
   for (const b of blocks) {
-    if (!b.activity_id || !ids.has(b.activity_id)) continue;
+    if (!b.activity_id || !activityCountsOn(goal, b.activity_id, b.date_key)) continue;
     if (b.block_index >= elapsedBlocksForDate(b.date_key, now)) continue;
     (perDay.get(b.date_key) ?? perDay.set(b.date_key, new Set()).get(b.date_key)!).add(b.block_index);
   }
@@ -57,14 +56,11 @@ export const mergeGoalDailyLive = (
 ): GoalDayMinutes[] => {
   if (liveBlocks.length === 0) return daily;
   const liveDate = liveBlocks[0].date_key;
-  const ids = new Set(goal.linked_activity_ids ?? []);
   const seen = new Set<number>();
-  if (ids.size > 0) {
-    for (const b of liveBlocks) {
-      if (!b.activity_id || !ids.has(b.activity_id)) continue;
-      if (b.block_index >= elapsedBlocksForDate(liveDate, now)) continue;
-      seen.add(b.block_index);
-    }
+  for (const b of liveBlocks) {
+    if (!b.activity_id || !activityCountsOn(goal, b.activity_id, liveDate)) continue;
+    if (b.block_index >= elapsedBlocksForDate(liveDate, now)) continue;
+    seen.add(b.block_index);
   }
   const liveMinutes = seen.size * BLOCK_MINUTES;
   const withoutLiveDate = daily.filter((d) => d.date_key !== liveDate);
@@ -80,7 +76,38 @@ export interface GoalLike {
   updated_at?: string | null;
   linked_activity_ids?: string[] | null;
   linked_habit_ids?: string[] | null;
+  linked_activity_ranges?: GoalActivityRanges | null;
 }
+
+/** When each activity counted toward a goal. Missing entry = the goal's whole life. Mirrors the SQL goal_activity_counts. */
+export type GoalActivityRanges = Record<string, { since?: string | null; until?: string | null }>;
+
+/** Does a block of this activity on this date count toward the goal? Linked now, or unlinked (has an `until`) with the date inside its range. */
+export function activityCountsOn(goal: GoalLike, activityId: string, dateKey: string): boolean {
+  const range = goal.linked_activity_ranges?.[activityId];
+  const linked = (goal.linked_activity_ids ?? []).includes(activityId);
+  if (!linked && !range?.until) return false;
+  if (range?.since && dateKey < range.since) return false;
+  if (range?.until && dateKey > range.until) return false;
+  return true;
+}
+
+/** New ranges after the linked-activity set changes: newly linked start counting today, unlinked stop after today. */
+export const applyActivityLinkChange = (goal: GoalLike, nextIds: string[], todayKey: string): GoalActivityRanges => {
+  const prev = new Set(goal.linked_activity_ids ?? []);
+  const next = new Set(nextIds);
+  const ranges: GoalActivityRanges = { ...(goal.linked_activity_ranges ?? {}) };
+  for (const id of next) {
+    if (prev.has(id)) continue;
+    const old = ranges[id];
+    // Re-linking resumes the original range (gap days count); a first-time link starts today.
+    ranges[id] = old ? { since: old.since ?? null, until: null } : { since: todayKey, until: null };
+  }
+  for (const id of prev) {
+    if (!next.has(id)) ranges[id] = { since: ranges[id]?.since ?? null, until: todayKey };
+  }
+  return ranges;
+};
 
 const key = (d: Date) => format(d, 'yyyy-MM-dd');
 

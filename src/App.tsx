@@ -298,7 +298,7 @@ function TrackerApp({ session }: { session: any }) {
         );
 
       case 'focus':
-        return <FocusMode tasks={tasks} activities={activities} focusSessions={focusSessions} />;
+        return <FocusMode goals={goals} tasks={tasks} activities={activities} focusSessions={focusSessions} />;
 
       case 'analysis':
         return (

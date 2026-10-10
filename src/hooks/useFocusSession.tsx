@@ -11,7 +11,8 @@ import { blockKey, blocksToFill, focusedMinutes, type FocusSegment } from '../li
 
 export type TimerMode = 'focus' | 'short-break' | 'long-break';
 export type TimerType = 'pomodoro' | 'stopwatch';
-export type FocusTarget = { kind: 'task'; id: string } | { kind: 'activity'; id: string };
+/** A goal target fills the grid with one of the goal's linked activities, so the time counts toward the goal at once. */
+export type FocusTarget = { kind: 'task'; id: string } | { kind: 'activity'; id: string } | { kind: 'goal'; id: string; activityId: string };
 
 export const MODE_DURATIONS: Record<TimerMode, number> = {
   'focus': 25 * 60,
@@ -133,6 +134,7 @@ export const FocusSessionProvider: React.FC<ProviderProps> = ({ userId, tasks, a
   const fillActivityFor = (target: FocusTarget | null): { activityId: string | null; taskId: string | null } => {
     if (!target) return { activityId: null, taskId: null };
     if (target.kind === 'activity') return { activityId: target.id, taskId: null };
+    if (target.kind === 'goal') return { activityId: target.activityId, taskId: null };
     const task = io.current.tasks.find((t) => t.id === target.id);
     return { activityId: task?.activity_id ?? null, taskId: task?.id ?? null };
   };
@@ -256,6 +258,7 @@ export const FocusSessionProvider: React.FC<ProviderProps> = ({ userId, tasks, a
   const fillActivityId = useMemo(() => {
     if (!state.target) return null;
     if (state.target.kind === 'activity') return state.target.id;
+    if (state.target.kind === 'goal') return state.target.activityId;
     return tasks.find((t) => t.id === state.target!.id)?.activity_id ?? null;
   }, [state.target, tasks]);
 

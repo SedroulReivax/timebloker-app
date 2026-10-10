@@ -45,7 +45,7 @@ export interface ExportHabit { id: string; name: string; type?: string | null; f
 export interface ExportHabitLog { habit_id: string; date_key: string | null; logged_at?: string | null }
 export interface ExportGoal {
   id: string; title: string; status?: string | null; target_hours?: number | null; target_date?: string | null; created_at?: string | null;
-  updated_at?: string | null; linked_activity_ids?: string[] | null; linked_habit_ids?: string[] | null; description?: string | null;
+  updated_at?: string | null; linked_activity_ids?: string[] | null; linked_activity_ranges?: Record<string, { since?: string | null; until?: string | null }> | null; linked_habit_ids?: string[] | null; description?: string | null;
 }
 export interface ExportSleepLog { date_key: string; quality?: number | null; energy?: number | null; factors?: string[] | null; notes?: string | null }
 export interface ExportReview { period_type: string; period_key: string; energy?: number | null; happened?: string | null; planned?: string | null; changed?: string | null; carry_over?: string | null; notes?: string | null }
